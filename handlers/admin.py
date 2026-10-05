@@ -3,6 +3,7 @@ import html
 import json
 import logging
 import re
+import time
 from datetime import timedelta
 
 from aiogram import Bot, F, Router
@@ -21,9 +22,12 @@ from database.models import User
 from handlers.sections import safe_edit, send_screen
 from keyboards.inline import sponsor_bonus_kb
 from services.botohub_service import BotohubService
+from services.fragment_parser import FragmentParser
+from services.free_pool import FreeNamePool
 from services.mtproto_pool import MTProtoPool
 from services.op_manager import check_sponsors
 from services.tgrass_service import TgrassService
+from services.username_checker import UsernameChecker
 from texts import SPONSOR_BONUS_TEXT
 
 log = logging.getLogger(__name__)
@@ -122,7 +126,45 @@ async def adm_stats(call: CallbackQuery, session: AsyncSession, pool: MTProtoPoo
         f"🤖 MTProto-пул: <b>{pool.alive}/{pool.size}</b> аккаунтов доступно"
     )
     await call.answer()
-    await safe_edit(call, text, _kb(("🔄 Обновить", "adm:stats"), BACK))
+    await safe_edit(call, text, _kb(("🔄 Обновить", "adm:stats"), ("🩺 Проверка сервисов", "adm:health"), BACK))
+
+
+@router.callback_query(F.data == "adm:health")
+async def adm_health(call: CallbackQuery, checker: UsernameChecker, pool: MTProtoPool, name_pool: FreeNamePool) -> None:
+    """Как сервер видит сервисы проверки ников: скорость и ответы t.me, Fragment и Telegram."""
+    await call.answer("⏳ Проверяю сервисы…")
+
+    async def timed(coro):
+        t = time.perf_counter()
+        try:
+            res = await coro
+        except Exception as e:
+            res = f"ошибка: {e}"
+        return res, time.perf_counter() - t
+
+    tme, t1 = await timed(checker._tme_exists("durov"))
+    frag, t2 = await timed(FragmentParser.check_username("durov"))
+    if checker.resolver and checker.resolver.enabled:
+        res, t3 = await timed(checker.resolver.resolve("durov"))
+    else:
+        res, t3 = "выключена (нет API_ID/API_HASH)", 0.0
+
+    def mark(ok: bool) -> str:
+        return "🟢" if ok else "🔴"
+
+    frag_status = frag.get("status") if isinstance(frag, dict) else frag
+    stock = {n: len(items) for n, items in name_pool.items.items()}
+    text = (
+        "🩺 <b>ПРОВЕРКА СЕРВИСОВ</b> (с этого сервера)\n\n"
+        f"{mark(tme is True)} t.me: {'отвечает' if tme is True else html.escape(str(tme))} — {t1:.1f} сек\n"
+        f"{mark(frag_status == 'taken')} Fragment: {html.escape(str(frag_status))} — {t2:.1f} сек\n"
+        f"{mark(res == 'occupied')} Проверка через Telegram: {html.escape(str(res))} — {t3:.1f} сек\n"
+        f"🤖 Аккаунтов в пуле: {pool.alive}/{pool.size}\n"
+        f"📦 Запас готовых ников: 5 букв — {stock.get(5, 0)}, 6 букв — {stock.get(6, 0)}\n\n"
+        "<i>Норма: все 🟢 и до 1–2 сек. Если t.me или Fragment 🔴 или по 5 сек — сервер их не видит "
+        "(часто так на серверах в РФ), тогда нужен прокси (HTTP_PROXY в .env) или сервер в другой стране.</i>"
+    )
+    await call.message.answer(text, reply_markup=_kb(("🔄 Ещё раз", "adm:health"), ("🔙 К статистике", "adm:stats")))
 
 
 # ───────────────────────── Спонсоры ─────────────────────────

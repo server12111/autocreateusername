@@ -15,6 +15,7 @@ from database.base import engine, init_db, session_maker
 from handlers import admin, admin_accounts, admin_botohub, admin_style, nickname_battle, profile, referrals, search, shop, start
 from middlewares.captcha_mw import CaptchaMiddleware
 from middlewares.db_middleware import DbSessionMiddleware
+from services.free_pool import FreeNamePool
 from services.http import close_session
 from services.mtproto_pool import BotResolver, MTProtoPool
 from services.nickname_sniper import run_sniper_cycle
@@ -69,6 +70,8 @@ async def main() -> None:
     dp = Dispatcher(storage=MemoryStorage())
     dp["pool"] = pool
     dp["checker"] = checker
+    name_pool = FreeNamePool(checker)
+    dp["name_pool"] = name_pool
 
     db_mw = DbSessionMiddleware()
     captcha_mw = CaptchaMiddleware()
@@ -101,6 +104,7 @@ async def main() -> None:
         max_instances=1, coalesce=True,
     )
     scheduler.start()
+    name_pool.start()
 
     await bot.set_my_commands([
         BotCommand(command="start", description="🏠 Главное меню"),
@@ -113,6 +117,7 @@ async def main() -> None:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         scheduler.shutdown(wait=False)
+        await name_pool.stop()
         await pool.close()
         await resolver.close()
         await close_session()

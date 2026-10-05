@@ -6,6 +6,7 @@ import string
 import time
 from dataclasses import dataclass
 
+import aiohttp
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 
@@ -102,6 +103,10 @@ def generate_from_mask(mask: str) -> str:
             return name
 
 
+class CheckerUnavailable(Exception):
+    """t.me / Fragment / Telegram подряд не отвечают — продолжать поиск бессмысленно."""
+
+
 @dataclass
 class CheckResult:
     username: str
@@ -119,6 +124,8 @@ class CheckResult:
 class UsernameChecker:
     """Двойная проверка юзернейма: Telegram (MTProto или резервный web/Bot API) + Fragment."""
 
+    MAX_UNKNOWN_STREAK = 18  # столько проверок подряд без ответа — считаем, что сервисы недоступны
+
     def __init__(self, pool: MTProtoPool, concurrency: int = 8, resolver: BotResolver | None = None):
         self.pool = pool
         self.resolver = resolver
@@ -129,7 +136,8 @@ class UsernameChecker:
         """Публичная страница t.me: есть заголовок -> ник занят. None — не удалось проверить."""
         try:
             async with get_session().get(
-                f"https://t.me/{username}", headers=random_headers(), proxy=proxy()
+                f"https://t.me/{username}", headers=random_headers(), proxy=proxy(),
+                timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status != 200:
                     return None
@@ -217,6 +225,7 @@ class UsernameChecker:
         """
         exclude = set(exclude or ())
         checked = 0
+        unknown_streak = 0  # подряд проверок без ответа от сервисов
         deadline = time.monotonic() + max_seconds
         while time.monotonic() < deadline:
             names: list[str] = []
@@ -234,6 +243,10 @@ class UsernameChecker:
             for r in results:
                 if r.is_free:
                     return r, checked
+                unknown_streak = unknown_streak + 1 if r.status == "unknown" else 0
+            if unknown_streak >= self.MAX_UNKNOWN_STREAK:
+                log.warning("Поиск остановлен: %d проверок подряд без ответа от сервисов", unknown_streak)
+                raise CheckerUnavailable()
         return None, checked
 
 

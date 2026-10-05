@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import time
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
@@ -11,8 +13,11 @@ from database import crud
 from database.models import User, utcnow
 from handlers.sections import build_search, cooldown_left, safe_edit
 from keyboards import inline
+from services.free_pool import FreeNamePool
+from services.op_manager import check_sponsors
 from services.username_checker import (
     STATUS_TEXT,
+    CheckerUnavailable,
     UsernameChecker,
     generate_from_mask,
     generate_nice,
@@ -20,7 +25,6 @@ from services.username_checker import (
     normalize,
     validate_mask,
 )
-from services.op_manager import check_sponsors
 from texts import FOUND_TEXT, MASK_PROMPT, NO_SPONSORS_TEXT, PAYWALL_TEXT, PREMIUM_ONLY_TEXT, SPONSOR_BONUS_TEXT, TRAP_PROMPT
 
 log = logging.getLogger(__name__)
@@ -122,6 +126,8 @@ async def run_search(
     mode: str,
     generator,
     title: str,
+    name_pool: FreeNamePool | None = None,
+    pool_length: int | None = None,
 ) -> None:
     if user.tg_id in _in_progress:
         if isinstance(event, CallbackQuery):
@@ -143,15 +149,30 @@ async def run_search(
             target = event if isinstance(event, Message) else event.message
             msg = await event.bot.send_message(target.chat.id, wait_text)
 
+        ticker = asyncio.create_task(_tick(msg, wait_text))
         try:
             exclude = await crud.recently_checked_by_user(session, user.tg_id, since_hours=24 * 7)
-            result, _ = await checker.find_free(generator, exclude=exclude)
+            result = None
+            if name_pool and pool_length:
+                result = await name_pool.take(pool_length, exclude)
+            if not result:
+                result, _ = await checker.find_free(generator, exclude=exclude)
+        except CheckerUnavailable:
+            await _refund(session, user, source)
+            await msg.edit_text(
+                "⚠️ Сервисы проверки (Telegram / Fragment) сейчас не отвечают.\n\n"
+                "Поиск <b>не списан</b> — попробуйте через пару минут.",
+                reply_markup=inline.retry_kb(mode),
+            )
+            return
         except Exception:
             log.exception("Ошибка поиска")
             await _refund(session, user, source)
             await msg.edit_text("⚠️ Сервис проверки временно недоступен. Поиск <b>не списан</b> — попробуйте позже.",
                                 reply_markup=inline.retry_kb(mode))
             return
+        finally:
+            ticker.cancel()
 
         if not result:
             await _refund(session, user, source)
@@ -171,6 +192,21 @@ async def run_search(
         _in_progress.discard(user.tg_id)
 
 
+async def _tick(msg: Message, wait_text: str) -> None:
+    """Обновляет таймер в сообщении поиска, чтобы было видно, что бот работает."""
+    started = time.monotonic()
+    try:
+        while True:
+            await asyncio.sleep(5)
+            elapsed = int(time.monotonic() - started)
+            try:
+                await msg.edit_text(f"{wait_text}\n\n⏱ Идёт поиск: {elapsed} сек")
+            except Exception:
+                pass
+    except asyncio.CancelledError:
+        pass
+
+
 async def _premium_gate(call: CallbackQuery, user: User) -> bool:
     if crud.premium_active(user):
         return True
@@ -180,14 +216,20 @@ async def _premium_gate(call: CallbackQuery, user: User) -> bool:
 
 
 @router.callback_query(F.data == "s:5")
-async def search_5(call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker) -> None:
+async def search_5(
+    call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker, name_pool: FreeNamePool
+) -> None:
     if await _premium_gate(call, user):
-        await run_search(call, session, user, checker, "5", lambda: generate_nice(5), "Ищу редкий 5-буквенный юзернейм")
+        await run_search(call, session, user, checker, "5", lambda: generate_nice(5),
+                         "Ищу редкий 5-буквенный юзернейм", name_pool, 5)
 
 
 @router.callback_query(F.data == "s:6")
-async def search_6(call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker) -> None:
-    await run_search(call, session, user, checker, "6", lambda: generate_nice(6), "Ищу 6-буквенный юзернейм")
+async def search_6(
+    call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker, name_pool: FreeNamePool
+) -> None:
+    await run_search(call, session, user, checker, "6", lambda: generate_nice(6),
+                     "Ищу 6-буквенный юзернейм", name_pool, 6)
 
 
 @router.callback_query(F.data == "s:mask")

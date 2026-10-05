@@ -2,6 +2,8 @@ import asyncio
 import logging
 import re
 
+import aiohttp
+
 from services.http import get_session, proxy, random_headers
 
 log = logging.getLogger(__name__)
@@ -31,7 +33,7 @@ class FragmentParser:
         """
         clean = username.lstrip("@").lower()
         result = {"available": False, "status": "error", "price": None}
-        for attempt in range(3):
+        for attempt in range(2):
             result = await cls._fetch(clean)
             if result["status"] != "error":
                 return result
@@ -44,7 +46,8 @@ class FragmentParser:
         error = {"available": False, "status": "error", "price": None}
         try:
             async with _sem, get_session().get(
-                cls.BASE_URL + clean, headers=random_headers(), allow_redirects=False, proxy=proxy()
+                cls.BASE_URL + clean, headers=random_headers(), allow_redirects=False, proxy=proxy(),
+                timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status in (301, 302, 303):
                     # Ника нет на Fragment — редирект на поиск. Любой другой редирект — не доверяем
