@@ -62,6 +62,15 @@ async def show_no_balance(event: CallbackQuery | Message, session: AsyncSession,
     await safe_edit(event, PAYWALL_TEXT, _paywall_kb())
 
 
+@router.callback_query(F.data == "s:bonus")
+async def sponsor_bonus(call: CallbackQuery, session: AsyncSession, user: User) -> None:
+    if user.sponsor_bonus_claimed:
+        await call.answer("Бонус за подписку уже получен 👌", show_alert=True)
+        return
+    await call.answer()
+    await show_no_balance(call, session, user)
+
+
 async def _reserve_search(event: CallbackQuery | Message, session: AsyncSession, user: User) -> str | None:
     """Списывает поиск. Возвращает источник списания ('premium' | 'free' | 'paid') или None, если нельзя."""
     if crud.premium_active(user):

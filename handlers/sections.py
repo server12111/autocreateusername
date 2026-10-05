@@ -66,7 +66,10 @@ async def build_search(session: AsyncSession, user: User, bot: Bot) -> Screen:
     text = SEARCH_TEXT.format(
         free_left=free_left, paid_left=user.paid_searches_left, cooldown_status=cd
     )
-    return text, inline.search_kb()
+    bonus = 0
+    if not premium and not user.sponsor_bonus_claimed:
+        bonus = await crud.get_setting_int(session, "sponsor_bonus")
+    return text, inline.search_kb(bonus)
 
 
 async def build_shop(session: AsyncSession, user: User, bot: Bot) -> Screen:

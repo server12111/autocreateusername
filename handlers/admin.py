@@ -19,8 +19,12 @@ from database import crud
 from database.base import session_maker
 from database.models import User
 from handlers.sections import safe_edit, send_screen
+from keyboards.inline import sponsor_bonus_kb
+from services.botohub_service import BotohubService
 from services.mtproto_pool import MTProtoPool
+from services.op_manager import get_unsubscribed
 from services.tgrass_service import TgrassService
+from texts import SPONSOR_BONUS_TEXT
 
 log = logging.getLogger(__name__)
 
@@ -132,6 +136,7 @@ async def _sponsors_screen(session: AsyncSession):
     for ch in channels:
         kb.button(text=f"{'🟢' if ch.is_active else '🔴'} {ch.title}"[:60], callback_data=f"adm:sp:{ch.id}")
     kb.button(text="➕ Добавить канал", callback_data="adm:sp:add")
+    kb.button(text="👁 Как видит пользователь", callback_data="adm:sp:preview")
     kb.button(text=BACK[0], callback_data=BACK[1])
     kb.adjust(1)
     return text, kb.as_markup()
@@ -142,6 +147,61 @@ async def adm_sponsors(call: CallbackQuery, session: AsyncSession, state: FSMCon
     await state.clear()
     await call.answer()
     await safe_edit(call, *await _sponsors_screen(session))
+
+
+@router.callback_query(F.data == "adm:sp:preview")
+async def adm_sp_preview(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
+    """Диагностика: что ответил каждый источник спонсоров и какой экран увидит пользователь."""
+    await call.answer("⏳ Проверяю источники…")
+    lines = ["👁 <b>ДИАГНОСТИКА СПОНСОРОВ</b> (для вашего аккаунта)\n"]
+
+    own = await crud.get_sponsors(session)
+    lines.append(f"📢 <b>Свои каналы:</b> активных {len(own)}")
+
+    if await crud.get_setting(session, "tgrass_enabled") != "1":
+        lines.append("🌱 <b>Tgrass:</b> выключен")
+    elif not (key := await crud.get_setting(session, "tgrass_api_key")):
+        lines.append("🌱 <b>Tgrass:</b> нет API-ключа")
+    else:
+        try:
+            d = await TgrassService(key).request_offers(user.tg_id, user.username, user.lang, user.is_tg_premium)
+            offers = d.get("offers") or []
+            unsub = sum(1 for o in offers if not o.get("subscribed"))
+            lines.append(
+                f"🌱 <b>Tgrass:</b> HTTP {d.get('_http_status')}, status=<code>{html.escape(str(d.get('status')))}</code>, "
+                f"офферов {len(offers)}, не подписан на {unsub}"
+            )
+        except Exception as e:
+            lines.append(f"🌱 <b>Tgrass:</b> ошибка <code>{html.escape(str(e))}</code>")
+
+    if await crud.get_setting(session, "botohub_enabled") != "1":
+        lines.append("🧩 <b>BotoHub:</b> выключен")
+    elif not (key := await crud.get_setting(session, "botohub_api_key")):
+        lines.append("🧩 <b>BotoHub:</b> нет API-ключа")
+    else:
+        try:
+            d = await BotohubService(key).request_tasks(user.tg_id)
+            tasks = d.get("tasks") or []
+            open_ = sum(1 for t in tasks if isinstance(t, str) or not t.get("completed"))
+            extra = f", error=<code>{html.escape(str(d['error']))}</code>" if "error" in d else ""
+            lines.append(
+                f"🧩 <b>BotoHub:</b> HTTP {d.get('_http_status')}{extra}, заданий {len(tasks)}, не выполнено {open_}, "
+                f"completed={d.get('completed')}, skip={d.get('skip')}, fake={d.get('fake')}"
+            )
+        except Exception as e:
+            lines.append(f"🧩 <b>BotoHub:</b> ошибка <code>{html.escape(str(e))}</code>")
+
+    missing = await get_unsubscribed(bot, session, user)
+    lines.append(f"\nИтого каналов на экране: <b>{len(missing)}</b>")
+    if not missing:
+        lines.append(
+            "<i>Каналов нет: либо вы уже подписаны на всё, либо сервисы не выдали спонсоров для этого аккаунта "
+            "(у Tgrass статус no_offers, у BotoHub пустой список). Проверьте баланс и офферы в кабинетах сервисов.</i>"
+        )
+    await call.message.answer("\n".join(lines), reply_markup=_kb(("🔙 К каналам", "adm:sp")))
+
+    bonus = await crud.get_setting_int(session, "sponsor_bonus")
+    await call.message.answer(SPONSOR_BONUS_TEXT.format(bonus=bonus), reply_markup=sponsor_bonus_kb(missing, bonus))
 
 
 @router.callback_query(F.data == "adm:sp:add")
