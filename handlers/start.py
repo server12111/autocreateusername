@@ -9,10 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import crud
 from database.models import User
-from handlers.sections import SECTIONS, build_main, safe_edit
-from keyboards.inline import captcha_kb, op_kb
-from services.op_manager import check_subscription
-from texts import CAPTCHA_TEXT, OP_TEXT
+from handlers.sections import build_main, build_search, safe_edit
+from keyboards.inline import captcha_kb, sponsor_bonus_kb
+from services.op_manager import get_unsubscribed, notify_referrer
+from texts import CAPTCHA_TEXT, SPONSOR_BONUS_TEXT
 
 router = Router(name="start")
 
@@ -40,11 +40,6 @@ def _new_captcha(user_id: int) -> tuple[str, list[int]]:
 
 
 async def show_entry(event: Message | CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
-    """После капчи: проверка ОП, затем главное меню."""
-    missing = await check_subscription(bot, session, user)
-    if missing:
-        await safe_edit(event, OP_TEXT, op_kb(missing))
-        return
     await safe_edit(event, *await build_main(session, user, bot))
 
 
@@ -116,17 +111,22 @@ async def captcha_answer(call: CallbackQuery, bot: Bot, session: AsyncSession, u
 
 
 @router.callback_query(F.data == "check_op_sub")
-async def check_op(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User, state: FSMContext) -> None:
-    missing = await check_subscription(bot, session, user, use_cache=False)
-    if missing:
-        await call.answer("❌ Вы подписались не на все каналы. Пожалуйста, завершите подписку.", show_alert=True)
-        await safe_edit(call, OP_TEXT, op_kb(missing))
+async def check_op(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
+    """Проверка подписки на спонсоров → разовый бонус к бесплатным поискам."""
+    if user.sponsor_bonus_claimed:
+        await call.answer("Бонус за подписку уже получен 👌", show_alert=True)
+        await safe_edit(call, *await build_search(session, user, bot))
         return
-    await call.answer("✅ Подписка подтверждена! Добро пожаловать.", show_alert=True)
-    pending = (await state.get_data()).get("op_pending")
-    await state.update_data(op_pending=None)
-    builder = SECTIONS.get(pending, build_main)
-    await safe_edit(call, *await builder(session, user, bot))
+    missing = await get_unsubscribed(bot, session, user)
+    if missing:
+        bonus = await crud.get_setting_int(session, "sponsor_bonus")
+        await call.answer("❌ Вы подписались не на все каналы. Пожалуйста, завершите подписку.", show_alert=True)
+        await safe_edit(call, SPONSOR_BONUS_TEXT.format(bonus=bonus), sponsor_bonus_kb(missing, bonus))
+        return
+    bonus = await crud.claim_sponsor_bonus(session, user)
+    await notify_referrer(bot, session, user)
+    await call.answer(f"✅ Подписка подтверждена! Начислено +{bonus} поиска.", show_alert=True)
+    await safe_edit(call, *await build_search(session, user, bot))
 
 
 @router.callback_query(F.data == "menu:main")

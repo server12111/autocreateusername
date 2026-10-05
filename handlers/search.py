@@ -20,7 +20,8 @@ from services.username_checker import (
     normalize,
     validate_mask,
 )
-from texts import FOUND_TEXT, MASK_PROMPT, PREMIUM_ONLY_TEXT, TRAP_PROMPT, LINE
+from services.op_manager import get_unsubscribed
+from texts import FOUND_TEXT, LINE, MASK_PROMPT, PAYWALL_TEXT, PREMIUM_ONLY_TEXT, SPONSOR_BONUS_TEXT, TRAP_PROMPT
 
 log = logging.getLogger(__name__)
 router = Router(name="search")
@@ -41,15 +42,24 @@ async def open_search(call: CallbackQuery, bot: Bot, session: AsyncSession, user
     await safe_edit(call, *await build_search(session, user, bot))
 
 
-def _no_balance_kb():
+def _paywall_kb():
     kb = InlineKeyboardBuilder()
-    kb.button(text="⭐️ Premium", callback_data="shop:premium")
+    kb.button(text="⭐️ Купить Premium", callback_data="shop:premium")
     kb.button(text="📦 Пакеты поисков", callback_data="shop:packs")
-    kb.button(text="🎁 Ежедневный бонус", callback_data="prof:bonus")
-    kb.button(text="👥 Пригласить друзей", callback_data="menu:ref")
+    kb.button(text="👥 Premium бесплатно за друзей", callback_data="menu:ref")
     kb.button(text="🔙 Назад в поиск", callback_data="menu:search")
-    kb.adjust(2, 2, 1)
+    kb.adjust(1)
     return kb.as_markup()
+
+
+async def show_no_balance(event: CallbackQuery | Message, session: AsyncSession, user: User) -> None:
+    """Поиски закончились: сначала предлагаем бонус за подписку на спонсоров, потом — оплату."""
+    if not user.sponsor_bonus_claimed:
+        bonus = await crud.get_setting_int(session, "sponsor_bonus")
+        missing = await get_unsubscribed(event.bot, session, user)
+        await safe_edit(event, SPONSOR_BONUS_TEXT.format(bonus=bonus), inline.sponsor_bonus_kb(missing, bonus))
+        return
+    await safe_edit(event, PAYWALL_TEXT, _paywall_kb())
 
 
 async def _reserve_search(event: CallbackQuery | Message, session: AsyncSession, user: User) -> str | None:
@@ -74,14 +84,7 @@ async def _reserve_search(event: CallbackQuery | Message, session: AsyncSession,
     else:
         if isinstance(event, CallbackQuery):
             await event.answer()
-        await safe_edit(
-            event,
-            "😔 <b>Поиски на сегодня закончились</b>\n\n"
-            "Бесплатные поиски обновляются каждый день в 00:00 UTC.\n"
-            "Чтобы продолжить прямо сейчас — оформите Premium, купите пакет поисков, "
-            "заберите ежедневный бонус или пригласите друзей.",
-            _no_balance_kb(),
-        )
+        await show_no_balance(event, session, user)
         return None
     user.last_search_at = utcnow()
     await session.commit()
@@ -105,7 +108,6 @@ async def run_search(
     mode: str,
     generator,
     title: str,
-    attempts: int = 40,
 ) -> None:
     if user.tg_id in _in_progress:
         if isinstance(event, CallbackQuery):
@@ -129,7 +131,7 @@ async def run_search(
 
         try:
             exclude = await crud.recently_checked_by_user(session, user.tg_id, since_hours=24 * 7)
-            result, checked = await checker.find_free(generator, attempts=attempts, exclude=exclude)
+            result, _ = await checker.find_free(generator, exclude=exclude)
         except Exception:
             log.exception("Ошибка поиска")
             await _refund(session, user, source)
@@ -140,8 +142,8 @@ async def run_search(
         if not result:
             await _refund(session, user, source)
             await msg.edit_text(
-                f"😔 Проверено {checked} вариантов, но все заняты.\n\n"
-                "Поиск <b>не списан</b> — попробуйте ещё раз или измените маску.",
+                "😔 Свободных вариантов не нашлось — все комбинации заняты.\n\n"
+                "Поиск <b>не списан</b> — попробуйте другую маску.",
                 reply_markup=inline.retry_kb(mode),
             )
             return
@@ -150,7 +152,6 @@ async def run_search(
         user.total_searches_done += 1
         await session.commit()
         text = FOUND_TEXT.format(username=result.username, length=len(result.username))
-        text += f"\n\n<i>🔎 Проверено вариантов: {checked}</i>"
         await msg.edit_text(text, reply_markup=inline.found_kb(result.username, mode, row.id), disable_web_page_preview=True)
     finally:
         _in_progress.discard(user.tg_id)
@@ -167,12 +168,12 @@ async def _premium_gate(call: CallbackQuery, user: User) -> bool:
 @router.callback_query(F.data == "s:5")
 async def search_5(call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker) -> None:
     if await _premium_gate(call, user):
-        await run_search(call, session, user, checker, "5", lambda: generate_nice(5), "Ищу редкий 5-буквенный юзернейм", 300)
+        await run_search(call, session, user, checker, "5", lambda: generate_nice(5), "Ищу редкий 5-буквенный юзернейм")
 
 
 @router.callback_query(F.data == "s:6")
 async def search_6(call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker) -> None:
-    await run_search(call, session, user, checker, "6", lambda: generate_nice(6), "Ищу 6-буквенный юзернейм", 40)
+    await run_search(call, session, user, checker, "6", lambda: generate_nice(6), "Ищу 6-буквенный юзернейм")
 
 
 @router.callback_query(F.data == "s:mask")
@@ -193,7 +194,7 @@ async def search_mask_input(message: Message, session: AsyncSession, user: User,
         return
     await state.set_state(None)
     await state.update_data(last_mask=mask)
-    await run_search(message, session, user, checker, "m", lambda: generate_from_mask(mask), f"Ищу по маске {mask}", 150)
+    await run_search(message, session, user, checker, "m", lambda: generate_from_mask(mask), f"Ищу по маске {mask}")
 
 
 @router.callback_query(F.data == "s:m")
@@ -204,7 +205,7 @@ async def search_mask_again(call: CallbackQuery, session: AsyncSession, user: Us
     if not mask:
         await search_mask_prompt(call, user, state)
         return
-    await run_search(call, session, user, checker, "m", lambda: generate_from_mask(mask), f"Ищу по маске {mask}", 150)
+    await run_search(call, session, user, checker, "m", lambda: generate_from_mask(mask), f"Ищу по маске {mask}")
 
 
 @router.callback_query(F.data.startswith("s:save:"))

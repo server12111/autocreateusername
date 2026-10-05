@@ -1,5 +1,6 @@
+"""Спонсорские каналы (свои + Tgrass): подписка на них даёт бонусные поиски."""
+
 import logging
-import time
 from dataclasses import dataclass
 
 from aiogram import Bot
@@ -11,10 +12,6 @@ from services.tgrass_service import TgrassService
 
 log = logging.getLogger(__name__)
 
-# Кэш успешной проверки, чтобы не дёргать API на каждый клик
-PASS_CACHE_TTL = 90
-_passed: dict[int, float] = {}
-
 
 @dataclass
 class OpChannel:
@@ -23,9 +20,10 @@ class OpChannel:
 
 
 async def get_unsubscribed(bot: Bot, session: AsyncSession, user: User) -> list[OpChannel]:
+    """Каналы спонсоров, на которые пользователь ещё не подписан. Пустой список — подписан на всё."""
     result: list[OpChannel] = []
 
-    # Шаг 1: собственные каналы администратора
+    # Собственные каналы администратора
     for ch in await crud.get_sponsors(session):
         try:
             member = await bot.get_chat_member(ch.channel_id, user.tg_id)
@@ -35,7 +33,7 @@ async def get_unsubscribed(bot: Bot, session: AsyncSession, user: User) -> list[
             # Бот не админ в канале или канал удалён — не блокируем пользователя
             log.warning("ОП: не удалось проверить канал %s (%s): %s", ch.title, ch.channel_id, e)
 
-    # Шаг 2: спонсоры Tgrass
+    # Спонсоры Tgrass
     if await crud.get_setting(session, "tgrass_enabled") == "1":
         key = await crud.get_setting(session, "tgrass_api_key")
         if key:
@@ -47,21 +45,8 @@ async def get_unsubscribed(bot: Bot, session: AsyncSession, user: User) -> list[
     return result
 
 
-async def check_subscription(bot: Bot, session: AsyncSession, user: User, use_cache: bool = True) -> list[OpChannel]:
-    """Пустой список — пользователь подписан на всё."""
-    if use_cache and _passed.get(user.tg_id, 0) > time.time():
-        return []
-    missing = await get_unsubscribed(bot, session, user)
-    if missing:
-        _passed.pop(user.tg_id, None)
-    else:
-        _passed[user.tg_id] = time.time() + PASS_CACHE_TTL
-        await on_subscription_passed(bot, session, user)
-    return missing
-
-
-async def on_subscription_passed(bot: Bot, session: AsyncSession, user: User) -> None:
-    """Засчитывает реферала после капчи и ОП."""
+async def notify_referrer(bot: Bot, session: AsyncSession, user: User) -> None:
+    """Засчитывает приглашённого друга (после подписки на спонсоров) и уведомляет пригласившего."""
     credited = await crud.credit_referral(session, user)
     if not credited:
         return

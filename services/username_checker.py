@@ -3,6 +3,7 @@ import logging
 import random
 import re
 import string
+import time
 from dataclasses import dataclass
 
 from aiogram import Bot
@@ -202,14 +203,25 @@ class UsernameChecker:
                 return CheckResult(username, "unknown", False, False, source="web")
             return CheckResult(username, "free", True, True, source="web")
 
-    async def find_free(self, generator, attempts: int = 40, batch: int = 6, exclude: set[str] | None = None) -> tuple[CheckResult | None, int]:
-        """Генерирует кандидатов и проверяет пачками до первого свободного. Возвращает (результат, проверено)."""
+    async def find_free(
+        self,
+        generator,
+        batch: int = 6,
+        exclude: set[str] | None = None,
+        max_seconds: float = 600,
+    ) -> tuple[CheckResult | None, int]:
+        """Проверяет кандидатов пачками, пока не найдёт свободный.
+
+        Останавливается раньше, только если варианты маски закончились или прошло max_seconds
+        (страховка от бесконечного поиска). Возвращает (результат, проверено).
+        """
         exclude = set(exclude or ())
         checked = 0
-        while checked < attempts:
+        deadline = time.monotonic() + max_seconds
+        while time.monotonic() < deadline:
             names: list[str] = []
             tries = 0
-            while len(names) < batch and tries < batch * 20:
+            while len(names) < batch and tries < 500:
                 tries += 1
                 n = generator()
                 if is_valid_username(n) and n not in exclude:

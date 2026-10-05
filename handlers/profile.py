@@ -1,6 +1,3 @@
-import random
-from datetime import timedelta
-
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -8,8 +5,8 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import crud
-from database.models import User, utcnow
-from handlers.sections import build_profile, fmt_timedelta, safe_edit
+from database.models import User
+from handlers.sections import build_profile, safe_edit
 from keyboards import inline
 from texts import FAQ_TEXT, LINE
 
@@ -25,20 +22,6 @@ async def open_profile(call: CallbackQuery, bot: Bot, session: AsyncSession, use
     await state.set_state(None)
     await call.answer()
     await safe_edit(call, *await build_profile(session, user, bot))
-
-
-@router.callback_query(F.data == "prof:bonus")
-async def daily_bonus(call: CallbackQuery, session: AsyncSession, user: User) -> None:
-    now = utcnow()
-    if user.last_bonus_claim and now - user.last_bonus_claim < timedelta(hours=24):
-        left = timedelta(hours=24) - (now - user.last_bonus_claim)
-        await call.answer(f"⏳ Следующий бонус через {fmt_timedelta(left.total_seconds())}", show_alert=True)
-        return
-    amount = random.randint(1, 3)
-    user.free_searches_left += amount
-    user.last_bonus_claim = now
-    await session.commit()
-    await call.answer(f"🎁 Ежедневный бонус получен: +{amount} поиск(а)!", show_alert=True)
 
 
 @router.callback_query(F.data == "prof:promo")

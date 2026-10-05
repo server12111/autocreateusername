@@ -31,11 +31,16 @@ def main_menu_kb(support_url: str, battle_enabled: bool = True) -> InlineKeyboar
     return kb.as_markup()
 
 
-def op_kb(channels) -> InlineKeyboardMarkup:
+def sponsor_bonus_kb(channels, bonus: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for ch in channels:
         kb.button(text=f"📢 {ch.title}"[:64], url=ch.url)
-    kb.button(text="✅ Проверить подписку", callback_data="check_op_sub")
+    if channels:
+        kb.button(text="✅ Проверить подписку", callback_data="check_op_sub")
+    else:
+        kb.button(text=f"🎁 Забрать +{bonus} поиска", callback_data="check_op_sub")
+    kb.button(text="💎 Купить Premium", callback_data="shop:premium")
+    kb.button(text="🔙 Назад в поиск", callback_data="menu:search")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -124,12 +129,11 @@ def packs_kb() -> InlineKeyboardMarkup:
 
 def profile_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="🎁 Ежедневный бонус", callback_data="prof:bonus")
     kb.button(text="🎟 Ввести промокод", callback_data="prof:promo")
     kb.button(text="📁 Мои находки", callback_data="prof:finds")
     kb.button(text="ℹ️ Полезная информация", callback_data="prof:info")
     _back(kb)
-    kb.adjust(2, 2, 1)
+    kb.adjust(1, 2, 1)
     return kb.as_markup()
 
 

@@ -21,11 +21,13 @@ from database.models import (
 # ───────────────────────── settings ─────────────────────────
 
 _settings_cache: dict[str, str] = {}
+OBSOLETE_SETTINGS = ("daily_free_limit",)
 
 
 async def ensure_default_settings(session: AsyncSession) -> None:
     from config import settings as env
 
+    await session.execute(delete(Setting).where(Setting.key.in_(OBSOLETE_SETTINGS)))
     existing = {s.key: s.value for s in (await session.scalars(select(Setting))).all()}
     for key, value in DEFAULT_SETTINGS.items():
         if key not in existing:
@@ -107,7 +109,7 @@ async def get_or_create_user(session: AsyncSession, tg_user) -> tuple[User, bool
         first_name=tg_user.first_name or "",
         lang=(tg_user.language_code or "ru")[:8],
         is_tg_premium=bool(getattr(tg_user, "is_premium", False)),
-        free_searches_left=await get_setting_int(session, "daily_free_limit"),
+        free_searches_left=await get_setting_int(session, "start_free_searches"),
     )
     session.add(user)
     try:
@@ -144,18 +146,36 @@ async def expire_premiums(session: AsyncSession) -> list[int]:
             select(User).where(User.is_premium.is_(True), User.premium_until <= utcnow())
         )
     ).all()
+    if not rows:
+        return []
     for u in rows:
         u.is_premium = False
     await session.commit()
     return [u.tg_id for u in rows]
 
 
-async def reset_daily_limits(session: AsyncSession) -> None:
-    limit = await get_setting_int(session, "daily_free_limit")
-    await session.execute(
-        update(User).where(User.free_searches_left < limit).values(free_searches_left=limit)
+async def claim_sponsor_bonus(session: AsyncSession, user: User) -> int:
+    """Разово начисляет бонус за подписку на спонсоров. Возвращает кол-во поисков (0 — уже получал)."""
+    if user.sponsor_bonus_claimed:
+        return 0
+    bonus = await get_setting_int(session, "sponsor_bonus")
+    user.sponsor_bonus_claimed = True
+    user.free_searches_left += bonus
+    await session.commit()
+    return bonus
+
+
+async def cleanup_old_records(session: AsyncSession, days: int = 30) -> dict[str, int]:
+    """Удаляет старые записи, которые больше не нужны, чтобы база не разрасталась."""
+    border = utcnow() - timedelta(days=days)
+    history = await session.execute(
+        delete(SearchHistory).where(SearchHistory.is_saved.is_(False), SearchHistory.created_at < border)
+    )
+    traps = await session.execute(
+        delete(NicknameTrap).where(NicknameTrap.is_active.is_(False), NicknameTrap.created_at < border)
     )
     await session.commit()
+    return {"history": history.rowcount or 0, "traps": traps.rowcount or 0}
 
 
 async def credit_referral(session: AsyncSession, user: User) -> tuple[User, int | None] | None:

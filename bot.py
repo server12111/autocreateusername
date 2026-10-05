@@ -15,7 +15,6 @@ from database.base import engine, init_db, session_maker
 from handlers import admin, admin_accounts, admin_style, nickname_battle, profile, referrals, search, shop, start
 from middlewares.captcha_mw import CaptchaMiddleware
 from middlewares.db_middleware import DbSessionMiddleware
-from middlewares.subscription_mw import SubscriptionMiddleware
 from services.http import close_session
 from services.mtproto_pool import BotResolver, MTProtoPool
 from services.nickname_sniper import run_sniper_cycle
@@ -25,10 +24,10 @@ from services.username_checker import UsernameChecker
 log = logging.getLogger("usersearch")
 
 
-async def daily_reset() -> None:
+async def cleanup_db() -> None:
     async with session_maker() as session:
-        await crud.reset_daily_limits(session)
-    log.info("Ежедневные лимиты сброшены")
+        removed = await crud.cleanup_old_records(session)
+    log.info("Чистка БД: удалено записей истории %d, старых ловушек %d", removed["history"], removed["traps"])
 
 
 async def premium_expiry(bot: Bot) -> None:
@@ -78,10 +77,6 @@ async def main() -> None:
     dp.message.outer_middleware(captcha_mw)
     dp.callback_query.outer_middleware(captcha_mw)
 
-    op_mw = SubscriptionMiddleware()
-    for r in (search.router, shop.router, profile.router, referrals.router, nickname_battle.router):
-        r.message.middleware(op_mw)
-        r.callback_query.middleware(op_mw)
 
     dp.include_routers(
         admin.router,
@@ -98,7 +93,7 @@ async def main() -> None:
     )
 
     scheduler = AsyncIOScheduler(timezone="UTC")
-    scheduler.add_job(daily_reset, "cron", hour=0, minute=0)
+    scheduler.add_job(cleanup_db, "cron", hour=3, minute=0)
     scheduler.add_job(premium_expiry, "interval", minutes=5, args=[bot])
     scheduler.add_job(
         run_sniper_cycle, "interval", seconds=settings.SNIPER_INTERVAL, args=[bot, checker],

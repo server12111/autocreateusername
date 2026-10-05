@@ -56,7 +56,6 @@ def cooldown_left(user: User, cooldown: int) -> int:
 
 async def build_search(session: AsyncSession, user: User, bot: Bot) -> Screen:
     premium = crud.premium_active(user)
-    limit = await crud.get_setting_int(session, "daily_free_limit")
     cooldown = await crud.get_setting_int(session, "search_cooldown_sec")
     if premium:
         free_left, cd = "♾ безлимит (Premium)", "0 сек ⚡️"
@@ -65,7 +64,7 @@ async def build_search(session: AsyncSession, user: User, bot: Bot) -> Screen:
         left = cooldown_left(user, cooldown)
         cd = f"{cooldown} сек" + (f" (осталось {left} сек)" if left else "")
     text = SEARCH_TEXT.format(
-        free_left=free_left, daily_limit=limit, paid_left=user.paid_searches_left, cooldown_status=cd
+        free_left=free_left, paid_left=user.paid_searches_left, cooldown_status=cd
     )
     return text, inline.search_kb()
 
@@ -127,21 +126,3 @@ async def build_battle(session: AsyncSession, user: User, bot: Bot) -> Screen:
         "Проголосуйте кнопкой ниже 👇"
     )
     return text, inline.battle_kb(i, j, a, b)
-
-
-SECTIONS = {
-    "menu:main": build_main,
-    "menu:search": build_search,
-    "menu:shop": build_shop,
-    "menu:profile": build_profile,
-    "menu:ref": build_ref,
-    "menu:battle": build_battle,
-}
-
-
-def fmt_timedelta(seconds: float) -> str:
-    seconds = int(seconds)
-    h, rem = divmod(seconds, 3600)
-    m = rem // 60
-    return f"{h:02d}ч {m:02d}м"
-

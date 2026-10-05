@@ -37,7 +37,7 @@ UI_EMOJI = [
 
 # ───────────────────────── цвета кнопок ─────────────────────────
 
-SUCCESS_DATA = {"check_op_sub", "s:5", "s:6", "s:m", "prof:bonus", "trap:add", "adm:sp:add", "adm:pr:new",
+SUCCESS_DATA = {"check_op_sub", "s:5", "s:6", "s:m", "trap:add", "adm:sp:add", "adm:pr:new",
                 "adm:bc:go", "adm:acc:phone", "adm:acc:upload", "shop:premium"}
 SUCCESS_PREFIX = ("buy:", "bt:v:", "cap:")
 PRIMARY_DATA = {"menu:search", "menu:shop", "menu:profile", "menu:ref", "menu:battle", "shop:packs",
@@ -116,12 +116,19 @@ class EmojiMap:
         return (self.mapping[_strip_vs(m.group(0))], rest) if rest else (None, text)
 
 
+_CONFIG_KEYS = ("premium_emoji_enabled", "button_colors_enabled", "premium_emoji")
+
+
 async def load_config() -> tuple[EmojiMap | None, bool]:
-    async with session_maker() as s:
-        emoji_on = await crud.get_setting(s, "premium_emoji_enabled") == "1"
-        colors_on = await crud.get_setting(s, "button_colors_enabled") == "1"
-        raw = await crud.get_setting(s, "premium_emoji") if emoji_on else ""
-    return (_build_map(raw) if emoji_on else None), colors_on
+    cache = crud._settings_cache
+    if not all(k in cache for k in _CONFIG_KEYS):
+        # Настройки кэшируются в памяти после первого чтения — БД открываем только один раз
+        async with session_maker() as s:
+            for k in _CONFIG_KEYS:
+                await crud.get_setting(s, k)
+    emoji_on = cache.get("premium_emoji_enabled") == "1"
+    colors_on = cache.get("button_colors_enabled") == "1"
+    return (_build_map(cache.get("premium_emoji", "")) if emoji_on else None), colors_on
 
 
 def _load_bundled() -> dict[str, str]:

@@ -44,7 +44,8 @@ class AdminStates(StatesGroup):
 
 
 SETTING_LABELS = {
-    "daily_free_limit": "Бесплатных поисков в день",
+    "start_free_searches": "Бесплатных поисков новичку",
+    "sponsor_bonus": "Бонус за подписку на спонсоров",
     "search_cooldown_sec": "Задержка между поисками (сек)",
     "support_url": "Ссылка на поддержку",
 }
