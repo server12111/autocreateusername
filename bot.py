@@ -12,7 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import settings
 from database import crud
 from database.base import engine, init_db, session_maker
-from handlers import admin, admin_accounts, admin_style, nickname_battle, profile, referrals, search, shop, start
+from handlers import admin, admin_accounts, admin_botohub, admin_style, nickname_battle, profile, referrals, search, shop, start
 from middlewares.captcha_mw import CaptchaMiddleware
 from middlewares.db_middleware import DbSessionMiddleware
 from services.http import close_session
@@ -82,6 +82,7 @@ async def main() -> None:
         admin.router,
         admin_accounts.router,
         admin_style.router,
+        admin_botohub.router,
         start.router,
         shop.payments_router,
         search.router,

@@ -43,6 +43,8 @@ REF_TIERS = [(3, 1), (10, 3), (15, 10), (35, 25)]
 DEFAULT_SETTINGS = {
     "tgrass_api_key": "",
     "tgrass_enabled": "0",
+    "botohub_api_key": "",
+    "botohub_enabled": "0",
     "start_free_searches": "1",
     "sponsor_bonus": "2",
     "search_cooldown_sec": "20",

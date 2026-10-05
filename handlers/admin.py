@@ -71,6 +71,7 @@ def _home():
         ("📊 Статистика", "adm:stats"),
         ("📢 Спонсоры (ОП)", "adm:sp"),
         ("🌱 Tgrass", "adm:tg"),
+        ("🧩 BotoHub", "adm:bh"),
         ("✉️ Рассылка", "adm:bc"),
         ("👤 Пользователи", "adm:users"),
         ("🎟 Промокоды", "adm:promo"),
@@ -80,7 +81,7 @@ def _home():
     ]:
         kb.button(text=t, callback_data=d)
     kb.button(text="🏠 Главное меню бота", callback_data="menu:main")
-    kb.adjust(2, 2, 2, 2, 1, 1)
+    kb.adjust(1, 2, 2, 2, 2, 1)
     return text, kb.as_markup()
 
 

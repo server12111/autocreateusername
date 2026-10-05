@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import crud
 from database.models import User
+from services.botohub_service import BotohubService
 from services.tgrass_service import TgrassService
 
 log = logging.getLogger(__name__)
@@ -42,6 +43,14 @@ async def get_unsubscribed(bot: Bot, session: AsyncSession, user: User) -> list[
             )
             for o in offers:
                 result.append(OpChannel(o.get("name") or "Канал спонсора", o["link"]))
+
+    # Спонсоры BotoHub
+    if await crud.get_setting(session, "botohub_enabled") == "1":
+        key = await crud.get_setting(session, "botohub_api_key")
+        if key:
+            # BotoHub не отдаёт названия каналов — нумеруем, чтобы кнопки различались
+            for i, url in enumerate(await BotohubService(key).get_unsubscribed(user.tg_id), len(result) + 1):
+                result.append(OpChannel(f"Спонсор #{i}", url))
     return result
 
 
