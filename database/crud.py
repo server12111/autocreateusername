@@ -348,9 +348,22 @@ async def list_promocodes(session: AsyncSession) -> list[Promocode]:
     return list((await session.scalars(select(Promocode).order_by(Promocode.id.desc()).limit(30))).all())
 
 
-async def deactivate_promocode(session: AsyncSession, promo_id: int) -> None:
-    await session.execute(update(Promocode).where(Promocode.id == promo_id).values(is_active=False))
-    await session.commit()
+async def toggle_promocode(session: AsyncSession, promo_id: int) -> Promocode | None:
+    promo = await session.get(Promocode, promo_id)
+    if promo:
+        promo.is_active = not promo.is_active
+        await session.commit()
+    return promo
+
+
+async def delete_promocode(session: AsyncSession, promo_id: int) -> Promocode | None:
+    """Удаляет промокод вместе с историей его активаций (награды у пользователей остаются)."""
+    promo = await session.get(Promocode, promo_id)
+    if promo:
+        await session.execute(delete(PromocodeActivation).where(PromocodeActivation.promocode_id == promo_id))
+        await session.delete(promo)
+        await session.commit()
+    return promo
 
 
 async def activate_promocode(session: AsyncSession, user: User, code: str) -> tuple[bool, str]:

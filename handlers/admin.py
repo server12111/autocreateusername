@@ -651,13 +651,15 @@ async def _promo_screen(session: AsyncSession):
             reward = f"{p.reward_value} дн. Premium" if p.reward_type == "premium_days" else f"{p.reward_value} поисков"
             exp = f", до {p.expires_at:%d.%m.%Y}" if p.expires_at else ""
             text += f"{'🟢' if p.is_active else '🔴'} <code>{p.code}</code> — {reward}, {p.activations_count}/{p.max_activations}{exp}\n"
-            if p.is_active:
-                kb.button(text=f"🔴 Отключить {p.code}", callback_data=f"adm:pr:off:{p.id}")
+            kb.button(
+                text=f"{'🔴 Откл.' if p.is_active else '🟢 Вкл.'} {p.code}"[:40], callback_data=f"adm:pr:tog:{p.id}"
+            )
+            kb.button(text=f"🗑 Удалить {p.code}"[:40], callback_data=f"adm:pr:del:{p.id}")
     else:
         text += "Промокодов пока нет."
     kb.button(text="➕ Создать промокод", callback_data="adm:pr:new")
     kb.button(text=BACK[0], callback_data=BACK[1])
-    kb.adjust(1)
+    kb.adjust(*([2] * len(promos)), 1, 1)
     return text, kb.as_markup()
 
 
@@ -668,10 +670,34 @@ async def adm_promo(call: CallbackQuery, session: AsyncSession, state: FSMContex
     await safe_edit(call, *await _promo_screen(session))
 
 
-@router.callback_query(F.data.startswith("adm:pr:off:"))
-async def adm_promo_off(call: CallbackQuery, session: AsyncSession) -> None:
-    await crud.deactivate_promocode(session, int(call.data.split(":")[3]))
-    await call.answer("Промокод отключён")
+@router.callback_query(F.data.startswith("adm:pr:tog:"))
+async def adm_promo_toggle(call: CallbackQuery, session: AsyncSession) -> None:
+    promo = await crud.toggle_promocode(session, int(call.data.split(":")[3]))
+    await call.answer(("Промокод включён" if promo.is_active else "Промокод отключён") if promo else "Не найден")
+    await safe_edit(call, *await _promo_screen(session))
+
+
+@router.callback_query(F.data.startswith("adm:pr:del:"))
+async def adm_promo_delete_confirm(call: CallbackQuery, session: AsyncSession) -> None:
+    promo_id = int(call.data.split(":")[3])
+    promo = next((p for p in await crud.list_promocodes(session) if p.id == promo_id), None)
+    if not promo:
+        await call.answer("Промокод не найден", show_alert=True)
+        await safe_edit(call, *await _promo_screen(session))
+        return
+    await call.answer()
+    await safe_edit(
+        call,
+        f"🗑 Удалить промокод <code>{promo.code}</code>?\n\n"
+        "Его больше нельзя будет активировать. Уже выданные награды у пользователей останутся.",
+        _kb(("🗑 Да, удалить", f"adm:pr:delok:{promo_id}"), ("❌ Отмена", "adm:promo"), width=2),
+    )
+
+
+@router.callback_query(F.data.startswith("adm:pr:delok:"))
+async def adm_promo_delete(call: CallbackQuery, session: AsyncSession) -> None:
+    promo = await crud.delete_promocode(session, int(call.data.split(":")[3]))
+    await call.answer(f"🗑 Промокод {promo.code} удалён" if promo else "Уже удалён")
     await safe_edit(call, *await _promo_screen(session))
 
 
