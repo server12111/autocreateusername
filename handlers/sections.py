@@ -10,7 +10,7 @@ from config import REF_TIERS
 from database import crud
 from database.models import User, utcnow
 from keyboards import inline
-from texts import MAIN_MENU_TEXT, PROFILE_TEXT, REF_TEXT, SEARCH_TEXT, SHARE_TEXT, SHOP_TEXT, LINE
+from texts import MAIN_MENU_TEXT, PROFILE_TEXT, REF_TEXT, SEARCH_TEXT, SHARE_TEXT, SHOP_TEXT
 
 Screen = tuple[str, InlineKeyboardMarkup]
 
@@ -120,7 +120,7 @@ async def build_battle(session: AsyncSession, user: User, bot: Bot) -> Screen:
     a, b = BATTLE_POOL[i], BATTLE_POOL[j]
     text = (
         "⚔️ <b>БИТВА НИКНЕЙМОВ</b>\n"
-        f"{LINE}\n\n"
+        "\n"
         "Какой юзернейм красивее и статуснее?\n\n"
         f"🔴 <b>@{a}</b>\n        vs\n🔵 <b>@{b}</b>\n\n"
         "Проголосуйте кнопкой ниже 👇"

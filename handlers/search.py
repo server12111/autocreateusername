@@ -21,7 +21,7 @@ from services.username_checker import (
     validate_mask,
 )
 from services.op_manager import get_unsubscribed
-from texts import FOUND_TEXT, LINE, MASK_PROMPT, PAYWALL_TEXT, PREMIUM_ONLY_TEXT, SPONSOR_BONUS_TEXT, TRAP_PROMPT
+from texts import FOUND_TEXT, MASK_PROMPT, PAYWALL_TEXT, PREMIUM_ONLY_TEXT, SPONSOR_BONUS_TEXT, TRAP_PROMPT
 
 log = logging.getLogger(__name__)
 router = Router(name="search")
@@ -219,7 +219,7 @@ async def save_finding(call: CallbackQuery, session: AsyncSession, user: User) -
 
 async def _traps_screen(session: AsyncSession, user: User):
     traps = await crud.get_user_traps(session, user.tg_id)
-    text = f"🪤 <b>ЛОВУШКА НА НИК (СНАЙПЕР)</b>\n{LINE}\n\n"
+    text = "🪤 <b>ЛОВУШКА НА НИК (СНАЙПЕР)</b>\n\n"
     if traps:
         text += "Активные ловушки:\n"
         for t in traps:
@@ -267,10 +267,9 @@ async def trap_input(message: Message, session: AsyncSession, user: User, state:
     if res.is_free:
         await state.set_state(None)
         kb = InlineKeyboardBuilder()
-        kb.button(text="🚀 Занять никнейм", url=f"https://t.me/{name}")
         kb.button(text="🔙 К ловушкам", callback_data="s:trap")
         kb.adjust(1)
-        await wait.edit_text(f"🎉 <b>@{name}</b> свободен прямо сейчас! Ловушка не нужна — занимайте:", reply_markup=kb.as_markup())
+        await wait.edit_text(f"🎉 <b>@{name}</b> свободен прямо сейчас! Ловушка не нужна — занимайте скорее.", reply_markup=kb.as_markup())
         return
     if res.status == "invalid":
         await wait.edit_text("⛔️ Этот юзернейм недопустим в Telegram. Отправьте другой:", reply_markup=inline.cancel_kb("s:trap"))

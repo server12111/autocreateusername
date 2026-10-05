@@ -6,7 +6,6 @@ from database import crud
 from database.models import User
 from handlers.sections import BATTLE_POOL, build_battle, safe_edit
 from keyboards import inline
-from texts import LINE
 
 router = Router(name="battle")
 
@@ -42,7 +41,7 @@ async def vote(call: CallbackQuery, session: AsyncSession, user: User) -> None:
     total = w + l or 1
     wp = round(w / total * 100)
     text = (
-        f"⚔️ <b>РЕЗУЛЬТАТ БИТВЫ</b>\n{LINE}\n\n"
+        f"⚔️ <b>РЕЗУЛЬТАТ БИТВЫ</b>\n\n"
         f"Ваш голос: <b>@{winner}</b> 👑\n\n"
         f"🔴 @{winner} — <b>{wp}%</b> ({w})\n"
         f"🔵 @{loser} — <b>{100 - wp}%</b> ({l})\n\n"
@@ -55,7 +54,7 @@ async def vote(call: CallbackQuery, session: AsyncSession, user: User) -> None:
 @router.callback_query(F.data == "bt:top")
 async def top(call: CallbackQuery, session: AsyncSession) -> None:
     rows = await crud.battle_top(session)
-    text = f"🏆 <b>ТОП-10 НИКНЕЙМОВ СООБЩЕСТВА</b>\n{LINE}\n\n"
+    text = "🏆 <b>ТОП-10 НИКНЕЙМОВ СООБЩЕСТВА</b>\n\n"
     medals = ["🥇", "🥈", "🥉"] + [f"{i}." for i in range(4, 11)]
     if rows:
         text += "\n".join(f"{medals[i]} <b>@{name}</b> — {votes} голос(ов)" for i, (name, votes) in enumerate(rows))

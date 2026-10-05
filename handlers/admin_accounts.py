@@ -22,7 +22,6 @@ from telethon.errors import (
 from config import settings
 from handlers.sections import safe_edit
 from services.mtproto_pool import MTProtoPool
-from texts import LINE
 
 router = Router(name="admin_accounts")
 router.message.filter(F.from_user.id.in_(settings.admin_ids))
@@ -56,7 +55,7 @@ def _cancel_kb():
 
 
 def _accounts_screen(pool: MTProtoPool):
-    text = f"🤖 <b>АККАУНТЫ ДЛЯ ПРОВЕРКИ</b>\n{LINE}\n\n"
+    text = "🤖 <b>АККАУНТЫ ДЛЯ ПРОВЕРКИ</b>\n\n"
     kb = InlineKeyboardBuilder()
     info = pool.info()
     if info:

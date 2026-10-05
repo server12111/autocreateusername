@@ -46,7 +46,7 @@ DEFAULT_SETTINGS = {
     "start_free_searches": "1",
     "sponsor_bonus": "2",
     "search_cooldown_sec": "20",
-    "support_url": "https://t.me/",
+    "support_url": "https://t.me/avalnm",
     "battle_enabled": "1",
     "captcha_enabled": "0",
     "premium_emoji": "{}",

@@ -51,7 +51,6 @@ async def process_payment(session: AsyncSession, user: User, payment: Successful
     payload = payment.invoice_payload
     lines = [
         "🧾 <b>ЧЕК ОБ ОПЛАТЕ</b>",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "",
     ]
     if payload in PREMIUM_PLANS:

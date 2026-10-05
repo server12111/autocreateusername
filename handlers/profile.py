@@ -8,7 +8,7 @@ from database import crud
 from database.models import User
 from handlers.sections import build_profile, safe_edit
 from keyboards import inline
-from texts import FAQ_TEXT, LINE
+from texts import FAQ_TEXT
 
 router = Router(name="profile")
 
@@ -44,7 +44,7 @@ async def promo_input(message: Message, session: AsyncSession, user: User, state
 @router.callback_query(F.data == "prof:finds")
 async def my_findings(call: CallbackQuery, session: AsyncSession, user: User) -> None:
     rows = await crud.get_findings(session, user.tg_id)
-    text = f"📁 <b>МОИ НАХОДКИ</b>\n{LINE}\n\n"
+    text = "📁 <b>МОИ НАХОДКИ</b>\n\n"
     if rows:
         for r in rows:
             star = "⭐️ " if r.is_saved else ""

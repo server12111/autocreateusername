@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 
@@ -7,6 +8,10 @@ log = logging.getLogger(__name__)
 
 _STATUS_RE = re.compile(r'tm-section-header-status\s+tm-status-(\w+)">([^<]*)<')
 _PRICE_RE = re.compile(r'table-cell-value tm-value icon-before icon-ton">([\d,.\s]+)<')
+
+
+# Ограничиваем параллельные запросы к Fragment, чтобы он не начал отдавать заглушки
+_sem = asyncio.Semaphore(6)
 
 
 class FragmentParser:
@@ -25,24 +30,42 @@ class FragmentParser:
           error   — не удалось проверить
         """
         clean = username.lstrip("@").lower()
+        result = {"available": False, "status": "error", "price": None}
+        for attempt in range(3):
+            result = await cls._fetch(clean)
+            if result["status"] != "error":
+                return result
+            await asyncio.sleep(0.5 * (attempt + 1))
+        log.warning("Fragment: не удалось проверить @%s", clean)
+        return result
+
+    @classmethod
+    async def _fetch(cls, clean: str) -> dict:
+        error = {"available": False, "status": "error", "price": None}
         try:
-            async with get_session().get(
+            async with _sem, get_session().get(
                 cls.BASE_URL + clean, headers=random_headers(), allow_redirects=False, proxy=proxy()
             ) as resp:
-                if resp.status in (301, 302, 303, 404):
+                if resp.status in (301, 302, 303):
+                    # Ника нет на Fragment — редирект на поиск. Любой другой редирект — не доверяем
+                    if "query=" in resp.headers.get("Location", ""):
+                        return {"available": True, "status": "free", "price": None}
+                    return error
+                if resp.status == 404:
                     return {"available": True, "status": "free", "price": None}
                 if resp.status != 200:
-                    return {"available": True, "status": "error", "price": None}
+                    return error
                 html = await resp.text()
         except Exception as e:
             log.debug("Fragment error for %s: %s", clean, e)
-            return {"available": True, "status": "error", "price": None}
+            return error
 
         m = _STATUS_RE.search(html)
         price_m = _PRICE_RE.search(html)
         price = price_m.group(1).strip() if price_m else None
         if not m:
-            return {"available": True, "status": "free", "price": None}
+            # Страница без статуса (заглушка, ограничение частоты) — считать ник свободным нельзя
+            return error
 
         css, text = m.group(1), m.group(2).strip().lower()
         if css == "avail":

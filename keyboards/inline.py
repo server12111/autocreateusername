@@ -58,11 +58,10 @@ def search_kb() -> InlineKeyboardMarkup:
 
 def found_kb(username: str, mode: str, search_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="🚀 Занять никнейм", url=f"https://t.me/{username}")
     kb.button(text="🔄 Искать ещё", callback_data=f"s:{mode}")
     kb.button(text="📁 В мои находки", callback_data=f"s:save:{search_id}")
     _back(kb, "menu:search", "🔙 Назад в поиск")
-    kb.adjust(1, 2, 1)
+    kb.adjust(2, 1)
     return kb.as_markup()
 
 

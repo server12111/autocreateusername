@@ -3,7 +3,6 @@ import logging
 from collections import defaultdict
 
 from aiogram import Bot
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database import crud
 from database.base import session_maker
@@ -39,8 +38,6 @@ async def run_sniper_cycle(bot: Bot, checker: UsernameChecker) -> None:
                     continue
                 trap.is_active = False
                 trap.notified_at = now
-                kb = InlineKeyboardBuilder()
-                kb.button(text="🚀 Занять никнейм", url=f"https://t.me/{res.username}")
                 try:
                     await bot.send_message(
                         trap.user_id,
@@ -48,7 +45,6 @@ async def run_sniper_cycle(bot: Bot, checker: UsernameChecker) -> None:
                         f"Желанный юзернейм <b>@{res.username}</b> прямо сейчас стал свободен!\n"
                         "⚡️ Скорее перейдите и займите его на свой аккаунт или канал:\n"
                         f"👉 https://t.me/{res.username}",
-                        reply_markup=kb.as_markup(),
                         disable_notification=False,
                     )
                 except Exception as e:

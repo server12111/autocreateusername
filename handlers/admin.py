@@ -21,7 +21,6 @@ from database.models import User
 from handlers.sections import safe_edit, send_screen
 from services.mtproto_pool import MTProtoPool
 from services.tgrass_service import TgrassService
-from texts import LINE
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +65,7 @@ BACK = ("🔙 В админку", "adm:home")
 
 
 def _home():
-    text = f"🛠 <b>ПАНЕЛЬ АДМИНИСТРАТОРА</b>\n{LINE}\n\nВыберите раздел:"
+    text = "🛠 <b>ПАНЕЛЬ АДМИНИСТРАТОРА</b>\n\nВыберите раздел:"
     kb = InlineKeyboardBuilder()
     for t, d in [
         ("📊 Статистика", "adm:stats"),
@@ -105,7 +104,7 @@ async def adm_home(call: CallbackQuery, state: FSMContext) -> None:
 async def adm_stats(call: CallbackQuery, session: AsyncSession, pool: MTProtoPool) -> None:
     s = await crud.get_stats(session)
     text = (
-        f"📊 <b>СТАТИСТИКА</b>\n{LINE}\n\n"
+        f"📊 <b>СТАТИСТИКА</b>\n\n"
         f"👥 Всего пользователей: <b>{s['total']}</b>\n"
         f"├ Новых за 24 часа: <b>{s['day']}</b>\n"
         f"├ Новых за 7 дней: <b>{s['week']}</b>\n"
@@ -126,7 +125,7 @@ async def adm_stats(call: CallbackQuery, session: AsyncSession, pool: MTProtoPoo
 
 async def _sponsors_screen(session: AsyncSession):
     channels = await crud.get_sponsors(session, only_active=False)
-    text = f"📢 <b>СОБСТВЕННЫЕ КАНАЛЫ ОП</b>\n{LINE}\n\n"
+    text = "📢 <b>СОБСТВЕННЫЕ КАНАЛЫ ОП</b>\n\n"
     text += "Нажмите на канал для управления.\n🟢 — активен, 🔴 — выключен." if channels else "Каналов пока нет."
     kb = InlineKeyboardBuilder()
     for ch in channels:
@@ -270,7 +269,7 @@ async def _tgrass_screen(session: AsyncSession):
     key = await crud.get_setting(session, "tgrass_api_key")
     masked = f"{key[:4]}…{key[-4:]}" if len(key) > 10 else ("задан" if key else "не задан")
     text = (
-        f"🌱 <b>ИНТЕГРАЦИЯ TGRASS</b>\n{LINE}\n\n"
+        f"🌱 <b>ИНТЕГРАЦИЯ TGRASS</b>\n\n"
         f"Статус: {'🟢 включена' if enabled else '🔴 выключена'}\n"
         f"API-ключ: <code>{masked}</code>\n\n"
         "Каналы спонсоров Tgrass показываются в ОП вместе с вашими каналами.\n"
@@ -449,7 +448,7 @@ async def adm_bc_go(call: CallbackQuery, bot: Bot, state: FSMContext) -> None:
 def _user_card(u: User):
     premium = crud.premium_active(u)
     text = (
-        f"👤 <b>Пользователь</b>\n{LINE}\n\n"
+        f"👤 <b>Пользователь</b>\n\n"
         f"ID: <code>{u.tg_id}</code>\n"
         f"Юзернейм: {'@' + u.username if u.username else '—'}\n"
         f"Имя: {html.escape(u.first_name or '')}\n"
@@ -573,7 +572,7 @@ async def adm_user_add_days(message: Message, bot: Bot, session: AsyncSession, s
 
 async def _promo_screen(session: AsyncSession):
     promos = await crud.list_promocodes(session)
-    text = f"🎟 <b>ПРОМОКОДЫ</b>\n{LINE}\n\n"
+    text = "🎟 <b>ПРОМОКОДЫ</b>\n\n"
     kb = InlineKeyboardBuilder()
     if promos:
         for p in promos:
@@ -645,7 +644,7 @@ async def adm_promo_create(message: Message, session: AsyncSession, state: FSMCo
 
 
 async def _settings_screen(session: AsyncSession):
-    text = f"⚙️ <b>ГЛОБАЛЬНЫЕ НАСТРОЙКИ</b>\n{LINE}\n\n"
+    text = "⚙️ <b>ГЛОБАЛЬНЫЕ НАСТРОЙКИ</b>\n\n"
     kb = InlineKeyboardBuilder()
     for key, label in SETTING_LABELS.items():
         text += f"• {label}: <b>{html.escape(await crud.get_setting(session, key))}</b>\n"

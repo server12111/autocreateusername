@@ -14,7 +14,6 @@ from config import settings
 from database import crud
 from handlers.sections import safe_edit
 from services.ui_style import BUNDLED_EMOJI, UI_EMOJI, VS16
-from texts import LINE
 
 router = Router(name="admin_style")
 router.message.filter(F.from_user.id.in_(settings.admin_ids))
@@ -40,7 +39,7 @@ async def _style_screen(session: AsyncSession):
     missing = [e for e in UI_EMOJI if e not in known]
 
     text = (
-        f"✨ <b>ОФОРМЛЕНИЕ</b>\n{LINE}\n\n"
+        f"✨ <b>ОФОРМЛЕНИЕ</b>\n\n"
         f"🎨 Цветные кнопки: <b>{'включены' if colors_on else 'выключены'}</b>\n"
         f"💎 Премиум-эмодзи: <b>{'включены' if emoji_on else 'выключены'}</b>\n"
         f"├ встроенный анимированный пак Telegram: {len(BUNDLED_EMOJI)} шт.\n"
