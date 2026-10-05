@@ -1,5 +1,5 @@
-aiogram>=3.13,<4
-SQLAlchemy>=2.0.30
+aiogram>=3.30,<4
+SQLAlchemy[asyncio]>=2.0.30
 aiosqlite>=0.20
 aiohttp>=3.9
 pydantic>=2.7
