@@ -11,7 +11,7 @@ from database import crud
 from database.models import User
 from handlers.sections import build_main, build_search, safe_edit
 from keyboards.inline import captcha_kb, sponsor_bonus_kb
-from services.op_manager import get_unsubscribed, notify_referrer
+from services.op_manager import check_sponsors, notify_referrer
 from texts import CAPTCHA_TEXT, SPONSOR_BONUS_TEXT
 
 router = Router(name="start")
@@ -117,11 +117,14 @@ async def check_op(call: CallbackQuery, bot: Bot, session: AsyncSession, user: U
         await call.answer("Бонус за подписку уже получен 👌", show_alert=True)
         await safe_edit(call, *await build_search(session, user, bot))
         return
-    missing = await get_unsubscribed(bot, session, user)
-    if missing:
+    state = await check_sponsors(bot, session, user)
+    if not state.available:
+        await call.answer("Сейчас нет доступных спонсоров — загляните чуть позже 🙏", show_alert=True)
+        return
+    if state.missing:
         bonus = await crud.get_setting_int(session, "sponsor_bonus")
         await call.answer("❌ Вы подписались не на все каналы. Пожалуйста, завершите подписку.", show_alert=True)
-        await safe_edit(call, SPONSOR_BONUS_TEXT.format(bonus=bonus), sponsor_bonus_kb(missing, bonus))
+        await safe_edit(call, SPONSOR_BONUS_TEXT.format(bonus=bonus), sponsor_bonus_kb(state.missing))
         return
     bonus = await crud.claim_sponsor_bonus(session, user)
     await notify_referrer(bot, session, user)

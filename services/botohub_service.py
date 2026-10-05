@@ -35,24 +35,27 @@ class BotohubService:
             data["_http_status"] = resp.status
             return data
 
-    async def get_unsubscribed(self, chat_id: int) -> list[str]:
-        """Ссылки спонсоров, на которые пользователь ещё НЕ подписан."""
+    async def get_unsubscribed(self, chat_id: int) -> tuple[list[str], bool]:
+        """(ссылки спонсоров, на которые пользователь ещё НЕ подписан; выдал ли BotoHub спонсоров вообще)."""
         if not self.api_key:
-            return []
+            return [], False
         try:
             data = await self.request_tasks(chat_id)
         except Exception as e:
             log.warning("BotoHub недоступен: %s", e)
-            return []
+            return [], False
         if data.get("_http_status") != 200 or "error" in data:
             log.warning("BotoHub: ошибка ответа %s", data)
-            return []
-        if data.get("skip") or data.get("completed"):
-            return []
+            return [], False
+        tasks = data.get("tasks") or []
+        if data.get("completed"):
+            return [], True  # все задания выполнены
+        if data.get("skip"):
+            return [], False
         links = []
-        for task in data.get("tasks") or []:
+        for task in tasks:
             if isinstance(task, str):
                 links.append(task)
             elif isinstance(task, dict) and task.get("url") and not task.get("completed"):
                 links.append(task["url"])
-        return links
+        return links, bool(tasks)

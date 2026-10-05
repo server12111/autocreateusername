@@ -31,14 +31,11 @@ def main_menu_kb(support_url: str, battle_enabled: bool = True) -> InlineKeyboar
     return kb.as_markup()
 
 
-def sponsor_bonus_kb(channels, bonus: int) -> InlineKeyboardMarkup:
+def sponsor_bonus_kb(channels) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for ch in channels:
         kb.button(text=f"📢 {ch.title}"[:64], url=ch.url)
-    if channels:
-        kb.button(text="✅ Проверить подписку", callback_data="check_op_sub")
-    else:
-        kb.button(text=f"🎁 Забрать +{bonus} поиска", callback_data="check_op_sub")
+    kb.button(text="✅ Проверить подписку", callback_data="check_op_sub")
     kb.button(text="💎 Купить Premium", callback_data="shop:premium")
     kb.button(text="🔙 Назад в поиск", callback_data="menu:search")
     kb.adjust(1)

@@ -20,8 +20,8 @@ from services.username_checker import (
     normalize,
     validate_mask,
 )
-from services.op_manager import get_unsubscribed
-from texts import FOUND_TEXT, MASK_PROMPT, PAYWALL_TEXT, PREMIUM_ONLY_TEXT, SPONSOR_BONUS_TEXT, TRAP_PROMPT
+from services.op_manager import check_sponsors
+from texts import FOUND_TEXT, MASK_PROMPT, NO_SPONSORS_TEXT, PAYWALL_TEXT, PREMIUM_ONLY_TEXT, SPONSOR_BONUS_TEXT, TRAP_PROMPT
 
 log = logging.getLogger(__name__)
 router = Router(name="search")
@@ -56,9 +56,14 @@ async def show_no_balance(event: CallbackQuery | Message, session: AsyncSession,
     """Поиски закончились: сначала предлагаем бонус за подписку на спонсоров, потом — оплату."""
     if not user.sponsor_bonus_claimed:
         bonus = await crud.get_setting_int(session, "sponsor_bonus")
-        missing = await get_unsubscribed(event.bot, session, user)
-        await safe_edit(event, SPONSOR_BONUS_TEXT.format(bonus=bonus), inline.sponsor_bonus_kb(missing, bonus))
-        return
+        state = await check_sponsors(event.bot, session, user)
+        if state.available:
+            await safe_edit(event, SPONSOR_BONUS_TEXT.format(bonus=bonus), inline.sponsor_bonus_kb(state.missing))
+            return
+        # Спонсоров сейчас нет — бонус не выдаём даром, предлагаем зайти позже или купить
+        if isinstance(event, CallbackQuery) and event.data == "s:bonus":
+            await safe_edit(event, NO_SPONSORS_TEXT.format(bonus=bonus), _paywall_kb())
+            return
     await safe_edit(event, PAYWALL_TEXT, _paywall_kb())
 
 

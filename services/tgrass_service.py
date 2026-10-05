@@ -52,18 +52,22 @@ class TgrassService:
         tg_login: str | None = None,
         lang: str = "ru",
         is_premium: bool = False,
-    ) -> list[dict[str, Any]]:
-        """Возвращает офферы, на которые пользователь ещё НЕ подписан."""
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """(офферы, на которые пользователь ещё НЕ подписан; выдал ли Tgrass спонсоров вообще).
+
+        status: ok — подписан на всё, not_ok — есть неподписанные, no_offers — спонсоров нет.
+        """
         if not self.api_key:
-            return []
+            return [], False
         try:
             data = await self.request_offers(tg_user_id, tg_login, lang, is_premium)
         except Exception as e:
             log.warning("Tgrass недоступен: %s", e)
-            return []
+            return [], False
         if data.get("status") not in ("ok", "not_ok"):
-            return []
-        return [o for o in data.get("offers") or [] if not o.get("subscribed", False) and o.get("link")]
+            return [], False
+        offers = [o for o in data.get("offers") or [] if not o.get("subscribed", False) and o.get("link")]
+        return offers, True
 
     async def reset_offers(self, tg_user_id: int) -> None:
         if not self.api_key:

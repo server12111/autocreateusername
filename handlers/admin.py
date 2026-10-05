@@ -22,7 +22,7 @@ from handlers.sections import safe_edit, send_screen
 from keyboards.inline import sponsor_bonus_kb
 from services.botohub_service import BotohubService
 from services.mtproto_pool import MTProtoPool
-from services.op_manager import get_unsubscribed
+from services.op_manager import check_sponsors
 from services.tgrass_service import TgrassService
 from texts import SPONSOR_BONUS_TEXT
 
@@ -191,17 +191,22 @@ async def adm_sp_preview(call: CallbackQuery, bot: Bot, session: AsyncSession, u
         except Exception as e:
             lines.append(f"🧩 <b>BotoHub:</b> ошибка <code>{html.escape(str(e))}</code>")
 
-    missing = await get_unsubscribed(bot, session, user)
-    lines.append(f"\nИтого каналов на экране: <b>{len(missing)}</b>")
-    if not missing:
+    state = await check_sponsors(bot, session, user)
+    lines.append(f"\nИтого каналов на экране: <b>{len(state.missing)}</b>")
+    if not state.available:
         lines.append(
-            "<i>Каналов нет: либо вы уже подписаны на всё, либо сервисы не выдали спонсоров для этого аккаунта "
-            "(у Tgrass статус no_offers, у BotoHub пустой список). Проверьте баланс и офферы в кабинетах сервисов.</i>"
+            "<i>Спонсоров нет ни в одном источнике — пользователь увидит «загляните позже», бонус не выдаётся.</i>"
         )
+    elif not state.missing:
+        lines.append("<i>Вы подписаны на всех спонсоров — по кнопке «Проверить подписку» начислится бонус.</i>")
+    lines.append(f"Бонус за подписку у вас: {'уже получен' if user.sponsor_bonus_claimed else 'не получен'}")
     await call.message.answer("\n".join(lines), reply_markup=_kb(("🔙 К каналам", "adm:sp")))
 
-    bonus = await crud.get_setting_int(session, "sponsor_bonus")
-    await call.message.answer(SPONSOR_BONUS_TEXT.format(bonus=bonus), reply_markup=sponsor_bonus_kb(missing, bonus))
+    if state.available:
+        bonus = await crud.get_setting_int(session, "sponsor_bonus")
+        await call.message.answer(
+            SPONSOR_BONUS_TEXT.format(bonus=bonus), reply_markup=sponsor_bonus_kb(state.missing)
+        )
 
 
 @router.callback_query(F.data == "adm:sp:add")
@@ -517,6 +522,7 @@ def _user_card(u: User):
         f"Капча: {'✅' if u.is_captcha_passed else '❌'}\n"
         f"Premium: {f'💎 до {u.premium_until:%d.%m.%Y %H:%M}' if premium else '❌'}\n"
         f"Поиски: бесплатных {u.free_searches_left}, купленных {u.paid_searches_left}, всего {u.total_searches_done}\n"
+        f"Бонус за подписку: {'получен' if u.sponsor_bonus_claimed else 'не получен'}\n"
         f"Рефералов: {u.referrals_count}\n"
         f"Статус: {'⛔️ ЗАБАНЕН' if u.is_banned else '🟢 активен'}"
     )
@@ -529,9 +535,11 @@ def _user_card(u: User):
     kb.button(text="❌ Снять Premium", callback_data=f"{p}:pr")
     kb.button(text="🔍 +поиски", callback_data=f"{p}:sr")
     kb.button(text="✅ Разбанить" if u.is_banned else "⛔️ Забанить", callback_data=f"{p}:ban")
+    if u.sponsor_bonus_claimed:
+        kb.button(text="🔄 Сбросить бонус за подписку", callback_data=f"{p}:rb")
     kb.button(text="🔎 Другой пользователь", callback_data="adm:users")
     kb.button(text=BACK[0], callback_data=BACK[1])
-    kb.adjust(3, 2, 2, 1, 1)
+    kb.adjust(3, 2, 2, 1, 1, 1)
     return text, kb.as_markup()
 
 
@@ -580,6 +588,9 @@ async def adm_user_action(call: CallbackQuery, bot: Bot, session: AsyncSession, 
         return
     elif action == "ban":
         u.is_banned = not u.is_banned
+        await session.commit()
+    elif action == "rb":
+        u.sponsor_bonus_claimed = False
         await session.commit()
     if notify:
         try:

@@ -1,7 +1,7 @@
-"""Спонсорские каналы (свои + Tgrass): подписка на них даёт бонусные поиски."""
+"""Спонсорские каналы (свои + Tgrass + BotoHub): подписка на них даёт бонусные поиски."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,38 +20,56 @@ class OpChannel:
     url: str
 
 
-async def get_unsubscribed(bot: Bot, session: AsyncSession, user: User) -> list[OpChannel]:
-    """Каналы спонсоров, на которые пользователь ещё не подписан. Пустой список — подписан на всё."""
-    result: list[OpChannel] = []
+@dataclass
+class SponsorState:
+    missing: list[OpChannel] = field(default_factory=list)  # на что ещё не подписан
+    available: bool = False  # выдал ли хоть один источник спонсоров
+
+    @property
+    def all_done(self) -> bool:
+        """Спонсоры есть и пользователь подписан на всех — можно давать бонус."""
+        return self.available and not self.missing
+
+
+async def check_sponsors(bot: Bot, session: AsyncSession, user: User) -> SponsorState:
+    state = SponsorState()
 
     # Собственные каналы администратора
     for ch in await crud.get_sponsors(session):
         try:
             member = await bot.get_chat_member(ch.channel_id, user.tg_id)
-            if member.status in ("left", "kicked"):
-                result.append(OpChannel(ch.title, ch.invite_link))
         except Exception as e:
-            # Бот не админ в канале или канал удалён — не блокируем пользователя
+            # Бот не админ в канале или канал удалён — такой канал не учитываем
             log.warning("ОП: не удалось проверить канал %s (%s): %s", ch.title, ch.channel_id, e)
+            continue
+        state.available = True
+        if member.status in ("left", "kicked"):
+            state.missing.append(OpChannel(ch.title, ch.invite_link))
 
     # Спонсоры Tgrass
     if await crud.get_setting(session, "tgrass_enabled") == "1":
         key = await crud.get_setting(session, "tgrass_api_key")
         if key:
-            offers = await TgrassService(key).get_offers(
+            offers, has = await TgrassService(key).get_offers(
                 user.tg_id, user.username, user.lang, user.is_tg_premium
             )
+            state.available |= has
             for o in offers:
-                result.append(OpChannel(o.get("name") or "Канал спонсора", o["link"]))
+                state.missing.append(OpChannel(o.get("name") or "Канал спонсора", o["link"]))
 
-    # Спонсоры BotoHub
+    # Спонсоры BotoHub (названий не отдаёт — нумеруем, чтобы кнопки различались)
     if await crud.get_setting(session, "botohub_enabled") == "1":
         key = await crud.get_setting(session, "botohub_api_key")
         if key:
-            # BotoHub не отдаёт названия каналов — нумеруем, чтобы кнопки различались
-            for i, url in enumerate(await BotohubService(key).get_unsubscribed(user.tg_id), len(result) + 1):
-                result.append(OpChannel(f"Спонсор #{i}", url))
-    return result
+            links, has = await BotohubService(key).get_unsubscribed(user.tg_id)
+            state.available |= has
+            for url in links:
+                state.missing.append(OpChannel(f"Спонсор #{len(state.missing) + 1}", url))
+    return state
+
+
+async def get_unsubscribed(bot: Bot, session: AsyncSession, user: User) -> list[OpChannel]:
+    return (await check_sponsors(bot, session, user)).missing
 
 
 async def notify_referrer(bot: Bot, session: AsyncSession, user: User) -> None:
