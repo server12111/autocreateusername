@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     SNIPER_INTERVAL: int = 120
     HTTP_PROXY: str = ""
 
+    # Оплата в долларах: Crypto Pay API (@CryptoBot) и xRocket Pay API
+    CRYPTOBOT_TOKEN: str = ""
+    XROCKET_TOKEN: str = ""
+
     @property
     def admin_ids(self) -> set[int]:
         return {int(x) for x in self.ADMIN_IDS.replace(" ", "").split(",") if x}
@@ -35,6 +39,16 @@ SEARCH_PACKS = {
     "s10": (10, 5),
     "s50": (50, 20),
     "s150": (150, 50),
+}
+# Цены в долларах для оплаты через CryptoBot / xRocket: ключ товара -> USD
+PRICES_USD = {
+    "p1": "0.12",
+    "p3": "0.30",
+    "p10": "0.77",
+    "p30": "1.19",
+    "s10": "0.06",
+    "s50": "0.24",
+    "s150": "0.60",
 }
 # Уровни реферальных наград: (кол-во друзей, дни Premium)
 REF_TIERS = [(3, 1), (10, 3), (15, 10), (35, 25)]

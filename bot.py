@@ -19,6 +19,7 @@ from services.free_pool import FreeNamePool
 from services.http import close_session
 from services.mtproto_pool import BotResolver, MTProtoPool
 from services.nickname_sniper import run_sniper_cycle
+from services.payment_service import poll_crypto_invoices
 from services.ui_style import UiStyleMiddleware
 from services.username_checker import UsernameChecker
 
@@ -99,6 +100,9 @@ async def main() -> None:
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(cleanup_db, "cron", hour=3, minute=0)
     scheduler.add_job(premium_expiry, "interval", minutes=5, args=[bot])
+    scheduler.add_job(
+        poll_crypto_invoices, "interval", seconds=30, args=[bot], max_instances=1, coalesce=True,
+    )
     scheduler.add_job(
         run_sniper_cycle, "interval", seconds=settings.SNIPER_INTERVAL, args=[bot, checker],
         max_instances=1, coalesce=True,

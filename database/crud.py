@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import DEFAULT_SETTINGS, REF_TIERS
 from database.models import (
     BattleVote,
+    CryptoInvoice,
     NicknameTrap,
     Payment,
     Promocode,
@@ -398,12 +399,91 @@ async def activate_promocode(session: AsyncSession, user: User, code: str) -> tu
 # ───────────────────────── payments ─────────────────────────
 
 
-async def add_payment(session: AsyncSession, user_id: int, payload: str, amount: int, charge_id: str) -> bool:
+async def add_payment(
+    session: AsyncSession, user_id: int, payload: str, amount: int, charge_id: str, currency: str = "XTR"
+) -> bool:
+    """amount: Stars для XTR, центы для USD. False — платёж уже учтён."""
     if await session.scalar(select(Payment).where(Payment.charge_id == charge_id)):
         return False
-    session.add(Payment(user_id=user_id, payload=payload, amount=amount, charge_id=charge_id))
-    await session.commit()
+    session.add(Payment(user_id=user_id, payload=payload, amount=amount, currency=currency, charge_id=charge_id))
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        return False
     return True
+
+
+async def add_crypto_invoice(
+    session: AsyncSession, provider: str, invoice_id: str, user_id: int, payload: str, amount_usd: str,
+    pay_url: str, ttl_sec: int,
+) -> CryptoInvoice:
+    now = utcnow()
+    inv = CryptoInvoice(
+        provider=provider, invoice_id=invoice_id, user_id=user_id, payload=payload, amount_usd=amount_usd,
+        pay_url=pay_url, created_at=now, expires_at=now + timedelta(seconds=ttl_sec),
+    )
+    session.add(inv)
+    await session.commit()
+    return inv
+
+
+async def find_open_crypto_invoice(
+    session: AsyncSession, user_id: int, provider: str, payload: str, amount_usd: str, min_left_sec: int = 300
+) -> CryptoInvoice | None:
+    """Неоплаченный счёт на тот же товар, который ещё долго будет действовать, — чтобы не плодить новые."""
+    return await session.scalar(
+        select(CryptoInvoice)
+        .where(
+            CryptoInvoice.user_id == user_id,
+            CryptoInvoice.provider == provider,
+            CryptoInvoice.payload == payload,
+            CryptoInvoice.amount_usd == amount_usd,
+            CryptoInvoice.status == "active",
+            CryptoInvoice.expires_at > utcnow() + timedelta(seconds=min_left_sec),
+        )
+        .order_by(CryptoInvoice.id.desc())
+        .limit(1)
+    )
+
+
+async def get_crypto_invoice(session: AsyncSession, inv_id: int) -> CryptoInvoice | None:
+    return await session.get(CryptoInvoice, inv_id)
+
+
+async def pending_crypto_invoices(session: AsyncSession, grace_sec: int = 600) -> list[CryptoInvoice]:
+    """Активные счета, включая недавно истёкшие (оплата могла пройти в последний момент)."""
+    return list(
+        (
+            await session.scalars(
+                select(CryptoInvoice).where(
+                    CryptoInvoice.status == "active",
+                    CryptoInvoice.expires_at > utcnow() - timedelta(seconds=grace_sec),
+                )
+            )
+        ).all()
+    )
+
+
+async def set_crypto_invoice_status(session: AsyncSession, inv_id: int, status: str, only_if: str = "active") -> bool:
+    """Атомарно меняет статус. True — именно этот вызов перевёл счёт (защита от двойного начисления)."""
+    res = await session.execute(
+        update(CryptoInvoice)
+        .where(CryptoInvoice.id == inv_id, CryptoInvoice.status == only_if)
+        .values(status=status)
+    )
+    await session.commit()
+    return res.rowcount == 1
+
+
+async def expire_stale_crypto_invoices(session: AsyncSession, grace_sec: int = 600) -> int:
+    res = await session.execute(
+        update(CryptoInvoice)
+        .where(CryptoInvoice.status == "active", CryptoInvoice.expires_at <= utcnow() - timedelta(seconds=grace_sec))
+        .values(status="expired")
+    )
+    await session.commit()
+    return res.rowcount
 
 
 # ───────────────────────── battle ─────────────────────────
@@ -480,7 +560,14 @@ async def get_stats(session: AsyncSession) -> dict:
             select(func.count()).select_from(NicknameTrap).where(NicknameTrap.is_active.is_(True))
         )
         or 0,
-        "stars": await session.scalar(select(func.coalesce(func.sum(Payment.amount), 0))) or 0,
+        "stars": await session.scalar(
+            select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.currency == "XTR")
+        )
+        or 0,
+        "usd_cents": await session.scalar(
+            select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.currency == "USD")
+        )
+        or 0,
         "payments": await session.scalar(select(func.count()).select_from(Payment)) or 0,
     }
 

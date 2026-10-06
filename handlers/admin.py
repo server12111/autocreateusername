@@ -122,7 +122,9 @@ async def adm_stats(call: CallbackQuery, session: AsyncSession, pool: MTProtoPoo
         f"💎 Активных Premium: <b>{s['premium']}</b>\n\n"
         f"🔍 Всего поисков: <b>{s['searches']}</b> (найдено свободных: {s['found']})\n"
         f"🪤 Активных ловушек: <b>{s['traps']}</b>\n\n"
-        f"⭐️ Заработано Stars: <b>{s['stars']}</b> ({s['payments']} платежей)\n\n"
+        f"⭐️ Заработано Stars: <b>{s['stars']}</b>\n"
+        f"💵 Заработано в долларах: <b>${s['usd_cents'] / 100:.2f}</b>\n"
+        f"🧾 Всего платежей: <b>{s['payments']}</b>\n\n"
         f"🤖 MTProto-пул: <b>{pool.alive}/{pool.size}</b> аккаунтов доступно"
     )
     await call.answer()

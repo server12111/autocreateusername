@@ -1,9 +1,10 @@
 from urllib.parse import quote
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import PREMIUM_PLANS, SEARCH_PACKS
+from services.crypto_pay import PROVIDERS, provider_name
 
 
 def _back(kb: InlineKeyboardBuilder, data: str = "menu:main", text: str = "🔙 Главное меню") -> None:
@@ -122,6 +123,33 @@ def packs_kb() -> InlineKeyboardMarkup:
     for key, (count, price) in SEARCH_PACKS.items():
         kb.button(text=f"🔍 {count} поисков — {price} ⭐️", callback_data=f"buy:{key}")
     _back(kb, "menu:shop", "🔙 В магазин")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def _provider_button(provider: str, text: str, **kwargs) -> InlineKeyboardButton:
+    """Кнопка с премиум-эмодзи платёжки. Обычный эмодзи в начале текста — запасной вариант,
+    если премиум-эмодзи выключены (ui_style уберёт лишнее)."""
+    _, emoji_id, char = PROVIDERS[provider]
+    return InlineKeyboardButton(text=f"{char} {text}", icon_custom_emoji_id=emoji_id, **kwargs)
+
+
+def pay_method_kb(key: str, stars: int, usd: str | None, providers: list[str], back: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=f"⭐️ Telegram Stars — {stars} ⭐️", callback_data=f"pay:st:{key}")
+    if usd:
+        for p in providers:
+            kb.add(_provider_button(p, f"{provider_name(p)} — ${usd}", callback_data=f"pay:{p}:{key}"))
+    _back(kb, back, "🔙 Назад")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def crypto_invoice_kb(provider: str, pay_url: str, inv_id: int, back: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.add(_provider_button(provider, f"Оплатить в {provider_name(provider)}", url=pay_url))
+    kb.button(text="✅ Я оплатил — проверить", callback_data=f"pay:chk:{inv_id}")
+    _back(kb, back, "🔙 Назад")
     kb.adjust(1)
     return kb.as_markup()
 

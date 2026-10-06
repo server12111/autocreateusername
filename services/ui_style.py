@@ -39,11 +39,11 @@ UI_EMOJI = [
 
 SUCCESS_DATA = {"check_op_sub", "s:bonus", "s:5", "s:6", "s:m", "trap:add", "adm:sp:add", "adm:pr:new",
                 "adm:bc:go", "adm:acc:phone", "adm:acc:upload", "shop:premium"}
-SUCCESS_PREFIX = ("buy:", "bt:v:", "cap:")
+SUCCESS_PREFIX = ("buy:", "pay:", "bt:v:", "cap:")
 PRIMARY_DATA = {"menu:search", "menu:shop", "menu:profile", "menu:ref", "menu:battle", "shop:packs",
                 "s:mask", "s:trap", "prof:promo", "prof:finds", "prof:info", "bt:top"}
 DANGER_MARKS = ("❌", "🗑", "⛔", "🔴")
-SUCCESS_URL_MARKS = ("🚀",)
+SUCCESS_URL_MARKS = ("🚀", "🦋")
 PRIMARY_URL_MARKS = ("📢", "🆘")
 
 
@@ -170,7 +170,16 @@ def style_markup(markup, emap: EmojiMap | None, colors: bool):
                 st = button_style(btn)
                 if st:
                     update["style"] = st
-            if emap and btn.icon_custom_emoji_id is None:
+            if btn.icon_custom_emoji_id is not None:
+                # Иконка задана в клавиатуре, а текст начинается с обычного эмодзи-запаски:
+                # с премиум-эмодзи убираем запаску, без них — иконку
+                head, _, rest = btn.text.partition(" ")
+                if emap:
+                    if rest and not head.isalnum():
+                        update["text"] = rest
+                else:
+                    update["icon_custom_emoji_id"] = None
+            elif emap:
                 emoji_id, rest = emap.leading(btn.text)
                 if emoji_id:
                     update["icon_custom_emoji_id"] = emoji_id
@@ -189,9 +198,6 @@ class UiStyleMiddleware(BaseRequestMiddleware):
         emap, colors = await load_config()
         if emap and time.time() < _emoji_off_until:
             emap = None
-        if not emap and not colors:
-            return await make_request(bot, method)
-
         try:
             return await make_request(bot, _styled(method, emap, colors))
         except TelegramBadRequest as e:

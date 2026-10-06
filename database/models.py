@@ -108,6 +108,24 @@ class Payment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class CryptoInvoice(Base):
+    """Счёт на оплату в долларах через CryptoBot (cb) или xRocket (xr)."""
+
+    __tablename__ = "crypto_invoices"
+    __table_args__ = (UniqueConstraint("provider", "invoice_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(8))
+    invoice_id: Mapped[str] = mapped_column(String(64))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.tg_id"), index=True)
+    payload: Mapped[str] = mapped_column(String(64))
+    amount_usd: Mapped[str] = mapped_column(String(16))
+    pay_url: Mapped[str] = mapped_column(String(256))
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)  # active | paid | expired
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class BattleVote(Base):
     __tablename__ = "battle_votes"
 
