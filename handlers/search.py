@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from datetime import timedelta
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from database import crud
 from database.models import User, msk, utcnow
-from handlers.sections import build_search, cooldown_left, safe_edit
+from handlers.sections import build_search, cooldown_left, premium_limit_phrase, safe_edit
 from keyboards import inline
 from services.free_pool import FreeNamePool, activity
 from services import social_checker
@@ -84,7 +85,7 @@ async def show_no_balance(event: CallbackQuery | Message, session: AsyncSession,
         if isinstance(event, CallbackQuery) and event.data == "s:bonus":
             await safe_edit(event, NO_SPONSORS_TEXT.format(bonus=bonus), _paywall_kb())
             return
-    await safe_edit(event, PAYWALL_TEXT, _paywall_kb())
+    await safe_edit(event, PAYWALL_TEXT.format(limit=await premium_limit_phrase(session)), _paywall_kb())
 
 
 @router.callback_query(F.data == "s:bonus")
@@ -99,6 +100,8 @@ async def sponsor_bonus(call: CallbackQuery, session: AsyncSession, user: User) 
 async def _reserve_search(event: CallbackQuery | Message, session: AsyncSession, user: User) -> str | None:
     """Списывает поиск. Возвращает источник списания ('premium' | 'free' | 'paid') или None, если нельзя."""
     if crud.premium_active(user):
+        if await premium_limit_reached(event, session, user):
+            return None
         return "premium"
     cooldown = await crud.get_setting_int(session, "search_cooldown_sec")
     left = cooldown_left(user, cooldown)
@@ -123,6 +126,26 @@ async def _reserve_search(event: CallbackQuery | Message, session: AsyncSession,
     user.last_search_at = utcnow()
     await session.commit()
     return source
+
+
+def _until_msk_midnight() -> str:
+    left = crud.msk_day_start() + timedelta(days=1) - utcnow()
+    hours, minutes = divmod(max(60, int(left.total_seconds())) // 60, 60)
+    return f"{hours} ч {minutes} мин" if hours else f"{minutes} мин"
+
+
+async def premium_limit_reached(event: CallbackQuery | Message, session: AsyncSession, user: User) -> bool:
+    """Дневной лимит Premium исчерпан — сообщает об этом и возвращает True."""
+    daily = await crud.premium_daily_left(session, user)
+    if daily is None or daily[0] > 0:
+        return False
+    text = (f"💎 Дневной лимит Premium исчерпан: {daily[1]} юзернеймов в сутки.\n\n"
+            f"Новые поиски — с 00:00 МСК (через {_until_msk_midnight()}).")
+    if isinstance(event, CallbackQuery):
+        await event.answer(text, show_alert=True)
+    else:
+        await event.answer(text)
+    return True
 
 
 async def _refund(session: AsyncSession, user: User, source: str) -> None:
@@ -380,7 +403,10 @@ async def _run_word_search(
             if exact.is_free and word not in exclude:
                 found.append(exact)
         todo = [(i, n) for i, n in enumerate(names) if i >= pos and n not in exclude]
-        more, done = await checker.find_many([n for _, n in todo], WORD_LIMIT - len(found))
+        # Не больше, чем осталось в дневном лимите Premium
+        daily = await crud.premium_daily_left(session, user)
+        need = min(WORD_LIMIT, daily[0]) - len(found) if daily else WORD_LIMIT - len(found)
+        more, done = await checker.find_many([n for _, n in todo], need) if need > 0 else ([], 0)
         found += more
         new_pos = todo[done - 1][0] + 1 if done else pos
         if done == len(todo):

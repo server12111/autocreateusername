@@ -58,6 +58,7 @@ SETTING_LABELS = {
     "search_cooldown_sec": "Задержка между поисками (сек)",
     "support_url": "Ссылка на поддержку",
     "renew_discount_pct": "Скидка на продление Premium (%, 0 — выкл.)",
+    "premium_daily_limit": "Лимит Premium: юзернеймов в сутки (0 — без лимита)",
 }
 
 

@@ -76,6 +76,7 @@ DEFAULT_SETTINGS = {
     "battle_enabled": "1",
     "captcha_enabled": "0",
     "renew_discount_pct": "20",
+    "premium_daily_limit": "25",  # найденных юзернеймов в сутки (МСК) для Premium; 0 — без лимита
     "premium_emoji": "{}",
     "premium_emoji_enabled": "1",
     "button_colors_enabled": "1",

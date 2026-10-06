@@ -59,7 +59,7 @@ async def premium_expiry(bot: Bot) -> None:
             prices, pct = plan_prices(user)
             text = (
                 "⌛️ Срок вашей Premium-подписки истёк.\n\n"
-                "Продлите её, чтобы снова искать без ограничений и пользоваться Ловушкой."
+                "Продлите её, чтобы снова искать без задержек и пользоваться Ловушкой."
             )
             if pct:
                 text += f"\n\n{discount_line(user)}"

@@ -21,6 +21,7 @@ from handlers.search import (
     _wait_message,
     format_statuses,
     network_statuses,
+    premium_limit_reached,
 )
 from handlers.sections import safe_edit
 from keyboards import inline
@@ -180,6 +181,8 @@ async def social_find_go(
     selected = await _find_selection(state)
     if not selected:
         await call.answer("Отметьте хотя бы одну сеть", show_alert=True)
+        return
+    if await premium_limit_reached(call, session, user):
         return
     await _guarded(call, user, _find_everywhere(call, session, user, checker, selected))
 

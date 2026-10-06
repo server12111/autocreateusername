@@ -16,6 +16,7 @@ from database.models import (
     SearchHistory,
     Setting,
     SponsorChannel,
+    MSK_OFFSET,
     User,
     msk,
     utcnow,
@@ -264,6 +265,35 @@ async def add_search(
     session.add(row)
     await session.commit()
     return row
+
+
+def msk_day_start() -> datetime:
+    """Начало текущих суток по Москве — в UTC, как хранится время в БД."""
+    now_msk = msk(utcnow())
+    return now_msk.replace(hour=0, minute=0, second=0, microsecond=0) - MSK_OFFSET
+
+
+async def found_today(session: AsyncSession, user_id: int) -> int:
+    """Сколько юзернеймов пользователь получил с 00:00 МСК (все режимы поиска)."""
+    return await session.scalar(
+        select(func.count()).select_from(SearchHistory).where(
+            SearchHistory.user_id == user_id,
+            SearchHistory.status_detail.in_(("free", "social")),
+            SearchHistory.created_at >= msk_day_start(),
+        )
+    ) or 0
+
+
+async def premium_daily_left(session: AsyncSession, user: User) -> tuple[int, int] | None:
+    """(осталось сегодня, лимит) для Premium. None — лимит не действует (нет Premium, админ, лимит 0)."""
+    from config import settings as env
+
+    if not premium_active(user) or user.tg_id in env.admin_ids:
+        return None
+    limit = await get_setting_int(session, "premium_daily_limit")
+    if limit <= 0:
+        return None
+    return max(0, limit - await found_today(session, user.tg_id)), limit
 
 
 async def save_finding(session: AsyncSession, user_id: int, search_id: int) -> bool:

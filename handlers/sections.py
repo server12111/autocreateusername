@@ -58,7 +58,9 @@ async def build_search(session: AsyncSession, user: User, bot: Bot) -> Screen:
     premium = crud.premium_active(user)
     cooldown = await crud.get_setting_int(session, "search_cooldown_sec")
     if premium:
-        free_left, cd = "♾ безлимит (Premium)", "0 сек ⚡️"
+        daily = await crud.premium_daily_left(session, user)
+        free_left = f"💎 Premium — сегодня осталось {daily[0]} из {daily[1]}" if daily else "♾ безлимит (Premium)"
+        cd = "0 сек ⚡️"
     else:
         free_left = str(user.free_searches_left)
         left = cooldown_left(user, cooldown)
@@ -72,8 +74,14 @@ async def build_search(session: AsyncSession, user: User, bot: Bot) -> Screen:
     return text, inline.search_kb(bonus)
 
 
+async def premium_limit_phrase(session: AsyncSession) -> str:
+    """«до 25 юзернеймов в день» или «безлимитный», если лимит выключен в админке."""
+    limit = await crud.get_setting_int(session, "premium_daily_limit")
+    return f"до {limit} юзернеймов в день" if limit > 0 else "без лимита"
+
+
 async def build_shop(session: AsyncSession, user: User, bot: Bot) -> Screen:
-    return SHOP_TEXT, inline.shop_kb()
+    return SHOP_TEXT.format(limit=await premium_limit_phrase(session)), inline.shop_kb()
 
 
 async def build_profile(session: AsyncSession, user: User, bot: Bot) -> Screen:
