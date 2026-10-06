@@ -155,7 +155,7 @@ async def adm_health(call: CallbackQuery, checker: UsernameChecker, pool: MTProt
         return "🟢" if ok else "🔴"
 
     frag_status = frag.get("status") if isinstance(frag, dict) else frag
-    stock = {n: len(items) for n, items in name_pool.items.items()}
+    stock = await name_pool.stock()
     text = (
         "🩺 <b>ПРОВЕРКА СЕРВИСОВ</b> (с этого сервера)\n\n"
         f"{mark(tme is True)} t.me: {'отвечает' if tme is True else html.escape(str(tme))} — {t1:.1f} сек\n"

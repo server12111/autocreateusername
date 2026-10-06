@@ -175,8 +175,12 @@ async def cleanup_old_records(session: AsyncSession, days: int = 30) -> dict[str
     traps = await session.execute(
         delete(NicknameTrap).where(NicknameTrap.is_active.is_(False), NicknameTrap.created_at < border)
     )
+    # Оплаченные счета остаются в payments, сами счета старше 30 дней не нужны
+    invoices = await session.execute(
+        delete(CryptoInvoice).where(CryptoInvoice.status != "active", CryptoInvoice.created_at < border)
+    )
     await session.commit()
-    return {"history": history.rowcount or 0, "traps": traps.rowcount or 0}
+    return {"history": history.rowcount or 0, "traps": traps.rowcount or 0, "invoices": invoices.rowcount or 0}
 
 
 async def credit_referral(session: AsyncSession, user: User) -> tuple[User, int | None] | None:

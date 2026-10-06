@@ -29,7 +29,10 @@ log = logging.getLogger("usersearch")
 async def cleanup_db() -> None:
     async with session_maker() as session:
         removed = await crud.cleanup_old_records(session)
-    log.info("Чистка БД: удалено записей истории %d, старых ловушек %d", removed["history"], removed["traps"])
+    log.info(
+        "Чистка БД: удалено записей истории %d, старых ловушек %d, старых счетов %d",
+        removed["history"], removed["traps"], removed["invoices"],
+    )
 
 
 async def premium_expiry(bot: Bot) -> None:

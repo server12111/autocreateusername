@@ -126,6 +126,17 @@ class CryptoInvoice(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class FreeName(Base):
+    """Запас свободных ников, найденных в простое. Размер ограничен FreeNamePool.TARGET."""
+
+    __tablename__ = "free_names"
+
+    username: Mapped[str] = mapped_column(String(32), primary_key=True)
+    length: Mapped[int] = mapped_column(Integer, index=True)
+    found_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
 class BattleVote(Base):
     __tablename__ = "battle_votes"
 

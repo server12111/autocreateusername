@@ -13,7 +13,7 @@ from database import crud
 from database.models import User, utcnow
 from handlers.sections import build_search, cooldown_left, safe_edit
 from keyboards import inline
-from services.free_pool import FreeNamePool
+from services.free_pool import FreeNamePool, activity
 from services.op_manager import check_sponsors
 from services.username_checker import (
     STATUS_TEXT,
@@ -136,60 +136,75 @@ async def run_search(
     # Ставим блокировку до списания, чтобы двойной клик не запустил два поиска
     _in_progress.add(user.tg_id)
     try:
-        source = await _reserve_search(event, session, user)
-        if not source:
-            return
-        wait_text = f"⏳ <b>{title}</b>\n\nГенерирую варианты и проверяю их в Telegram и на Fragment…"
-        if isinstance(event, CallbackQuery):
-            await event.answer()
-        if isinstance(event, CallbackQuery) and isinstance(event.message, Message):
-            msg = event.message
-            await safe_edit(event, wait_text)
-        else:
-            target = event if isinstance(event, Message) else event.message
-            msg = await event.bot.send_message(target.chat.id, wait_text)
-
-        ticker = asyncio.create_task(_tick(msg, wait_text))
-        try:
-            exclude = await crud.recently_checked_by_user(session, user.tg_id, since_hours=24 * 7)
-            result = None
-            if name_pool and pool_length:
-                result = await name_pool.take(pool_length, exclude)
-            if not result:
-                result, _ = await checker.find_free(generator, exclude=exclude)
-        except CheckerUnavailable:
-            await _refund(session, user, source)
-            await msg.edit_text(
-                "⚠️ Сервисы проверки (Telegram / Fragment) сейчас не отвечают.\n\n"
-                "Поиск <b>не списан</b> — попробуйте через пару минут.",
-                reply_markup=inline.retry_kb(mode),
-            )
-            return
-        except Exception:
-            log.exception("Ошибка поиска")
-            await _refund(session, user, source)
-            await msg.edit_text("⚠️ Сервис проверки временно недоступен. Поиск <b>не списан</b> — попробуйте позже.",
-                                reply_markup=inline.retry_kb(mode))
-            return
-        finally:
-            ticker.cancel()
-
-        if not result:
-            await _refund(session, user, source)
-            await msg.edit_text(
-                "😔 Свободных вариантов не нашлось — все комбинации заняты.\n\n"
-                "Поиск <b>не списан</b> — попробуйте другую маску.",
-                reply_markup=inline.retry_kb(mode),
-            )
-            return
-
-        row = await crud.add_search(session, user.tg_id, result.username, True, True, "free")
-        user.total_searches_done += 1
-        await session.commit()
-        text = FOUND_TEXT.format(username=result.username, length=len(result.username))
-        await msg.edit_text(text, reply_markup=inline.found_kb(result.username, mode, row.id), disable_web_page_preview=True)
+        with activity.user_search():  # фоновый поиск запаса ников на это время встаёт на паузу
+            await _run_search(event, session, user, checker, mode, generator, title, name_pool, pool_length)
     finally:
         _in_progress.discard(user.tg_id)
+
+
+async def _run_search(
+    event: CallbackQuery | Message,
+    session: AsyncSession,
+    user: User,
+    checker: UsernameChecker,
+    mode: str,
+    generator,
+    title: str,
+    name_pool: FreeNamePool | None,
+    pool_length: int | None,
+) -> None:
+    source = await _reserve_search(event, session, user)
+    if not source:
+        return
+    wait_text = f"⏳ <b>{title}</b>\n\nГенерирую варианты и проверяю их в Telegram и на Fragment…"
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+    if isinstance(event, CallbackQuery) and isinstance(event.message, Message):
+        msg = event.message
+        await safe_edit(event, wait_text)
+    else:
+        target = event if isinstance(event, Message) else event.message
+        msg = await event.bot.send_message(target.chat.id, wait_text)
+
+    ticker = asyncio.create_task(_tick(msg, wait_text))
+    try:
+        exclude = await crud.recently_checked_by_user(session, user.tg_id, since_hours=24 * 7)
+        result = None
+        if name_pool and pool_length:
+            result = await name_pool.take(pool_length, exclude)
+        if not result:
+            result, _ = await checker.find_free(generator, exclude=exclude)
+    except CheckerUnavailable:
+        await _refund(session, user, source)
+        await msg.edit_text(
+            "⚠️ Сервисы проверки (Telegram / Fragment) сейчас не отвечают.\n\n"
+            "Поиск <b>не списан</b> — попробуйте через пару минут.",
+            reply_markup=inline.retry_kb(mode),
+        )
+        return
+    except Exception:
+        log.exception("Ошибка поиска")
+        await _refund(session, user, source)
+        await msg.edit_text("⚠️ Сервис проверки временно недоступен. Поиск <b>не списан</b> — попробуйте позже.",
+                            reply_markup=inline.retry_kb(mode))
+        return
+    finally:
+        ticker.cancel()
+
+    if not result:
+        await _refund(session, user, source)
+        await msg.edit_text(
+            "😔 Свободных вариантов не нашлось — все комбинации заняты.\n\n"
+            "Поиск <b>не списан</b> — попробуйте другую маску.",
+            reply_markup=inline.retry_kb(mode),
+        )
+        return
+
+    row = await crud.add_search(session, user.tg_id, result.username, True, True, "free")
+    user.total_searches_done += 1
+    await session.commit()
+    text = FOUND_TEXT.format(username=result.username, length=len(result.username))
+    await msg.edit_text(text, reply_markup=inline.found_kb(result.username, mode, row.id), disable_web_page_preview=True)
 
 
 async def _tick(msg: Message, wait_text: str) -> None:
