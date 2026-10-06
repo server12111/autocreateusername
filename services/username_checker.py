@@ -173,7 +173,13 @@ class CheckResult:
 
     @property
     def is_free(self) -> bool:
+        """Точно свободен (подтверждено Telegram)."""
         return self.status == "free"
+
+    @property
+    def is_likely(self) -> bool:
+        """Вероятно свободен: проверен по t.me и Fragment, точная проверка временно недоступна."""
+        return self.status == "likely"
 
 
 class UsernameChecker:
@@ -228,7 +234,8 @@ class UsernameChecker:
         if not fresh and cached and cached[1] > time.monotonic():
             return cached[0]
         res = await self._check(username, background)
-        if res.status != "unknown":
+        # «Вероятно свободен» не запоминаем: как только аккаунты оживут, ник проверится точно
+        if res.status not in ("unknown", "likely"):
             ttl = self.CACHE_FREE_TTL if res.is_free else self.CACHE_TAKEN_TTL
             self._cache[key] = (res, time.monotonic() + ttl)
             if len(self._cache) > 50_000:
@@ -281,8 +288,12 @@ class UsernameChecker:
             # 5) Ни аккаунты, ни бот не ответили
             if resolved == "free" and frag["status"] != "error":
                 return CheckResult(username, "free", True, True, source="bot")
-            if self.resolver and self.resolver.enabled:
-                # Бот-проверка есть, но сейчас недоступна — не выдаём непроверенный ник за свободный
+            if (self.resolver and self.resolver.enabled) or self.pool.size:
+                # Точная проверка временно недоступна (аккаунты во FloodWait, бот ограничен).
+                # Профиля на t.me нет и на Fragment ник не продаётся — «вероятно свободен»:
+                # такой ник можно показать в поиске с пометкой, но не в запас и не в ловушки
+                if tme is False and frag["status"] == "free":
+                    return CheckResult(username, "likely", True, True, source="web")
                 return CheckResult(username, "unknown", False, False, source="bot")
             if await self._bot_resolve(username):
                 return CheckResult(username, "taken", False, True, source="web")
@@ -324,6 +335,11 @@ class UsernameChecker:
                 if r.is_free:
                     return r, checked
                 unknown_streak = unknown_streak + 1 if r.status == "unknown" else 0
+            # Точно свободного в пачке нет, но точная проверка недоступна — отдаём «вероятно свободный»,
+            # а не ошибку «сервисы не отвечают»
+            likely = next((r for r in results if r.is_likely), None)
+            if likely:
+                return likely, checked
             if unknown_streak >= self.MAX_UNKNOWN_STREAK:
                 log.warning("Поиск остановлен: %d проверок подряд без ответа от сервисов", unknown_streak)
                 raise CheckerUnavailable()
@@ -344,7 +360,7 @@ class UsernameChecker:
             chunk = names[pos : pos + batch]
             results = await asyncio.gather(*(self.check(n) for n in chunk))
             for i, r in enumerate(results):
-                if r.is_free:
+                if r.is_free or r.is_likely:  # «вероятно» бывает, только когда точная проверка недоступна
                     found.append(r)
                     if len(found) >= limit:
                         return found, pos + i + 1
@@ -367,4 +383,5 @@ STATUS_TEXT = {
     "invalid": "⛔️ Недопустимый юзернейм",
     "reserved": "🔒 Зарезервирован Telegram — занять нельзя",
     "unknown": "❔ Не удалось проверить",
+    "likely": "🟡 Вероятно свободен (точная проверка Telegram сейчас недоступна)",
 }

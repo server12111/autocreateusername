@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import crud
 from database.models import User
 from handlers.search import (
+    LIKELY_NOTE,
     _guarded,
     _premium_gate,
     _tick,
@@ -196,7 +197,7 @@ async def _find_everywhere(
     msg = await _wait_message(call, wait_text)
     ticker = asyncio.create_task(_tick(msg, wait_text))
     socials = [c for c in order if c != "tg"]
-    found = None
+    found, likely = None, False
     try:
         seen = await crud.recently_checked_by_user(session, user.tg_id, since_hours=24 * 7)
         deadline = time.monotonic() + FIND_SECONDS
@@ -210,8 +211,12 @@ async def _find_everywhere(
             # Сначала дешёвые проверки соцсетей, Telegram (лимиты аккаунтов) — только для прошедших
             candidates = await social_checker.free_everywhere(batch, socials) if socials else batch
             for name in candidates:
-                if "tg" not in order or (await checker.check(name)).is_free:
+                if "tg" not in order:
                     found = name
+                    break
+                res = await checker.check(name)
+                if res.is_free or res.is_likely:  # «вероятно» — когда аккаунты во FloodWait
+                    found, likely = name, res.is_likely
                     break
     except CheckerUnavailable:
         found = None
@@ -237,6 +242,8 @@ async def _find_everywhere(
     user.total_searches_done += 1
     await session.commit()
     statuses = {c: ("free", social_checker.STATUS_MARK["free"]) for c in order}
+    if likely:
+        statuses["tg"] = ("unknown", "🟡 вероятно свободен")
     kb.button(text="🔄 Найти ещё", callback_data="soc:fgo")
     kb.button(text="📁 В мои находки", callback_data=f"s:save:{row.id}")
     kb.button(text="⚙️ Выбрать сети", callback_data="soc:find")
@@ -244,7 +251,7 @@ async def _find_everywhere(
     kb.adjust(2, 1, 1)
     await msg.edit_text(
         f"🎉 <b>@{found}</b> свободен в: {titles}!\n\n{format_statuses(found, statuses)}\n\n"
-        "⚡️ Занимайте скорее, пока не забрали.",
+        "⚡️ Занимайте скорее, пока не забрали" + (LIKELY_NOTE if likely else ""),
         reply_markup=kb.as_markup(),
         disable_web_page_preview=True,
     )

@@ -123,7 +123,8 @@ class FreeNamePool:
             if name in exclude or not await self._claim(name):
                 continue
             res = await self.checker.check(name, fresh=True)
-            if res.is_free:
+            # «Вероятно свободен» из запаса надёжнее нового случайного: аккаунты уже подтверждали его раньше
+            if res.is_free or res.is_likely:
                 return res
             if res.status == "unknown":
                 # Сервисы не ответили — ник не потерян, возвращаем в запас
@@ -203,8 +204,8 @@ class FreeNamePool:
         if not stale:
             return False
         results = await asyncio.gather(*(self.checker.check(n, fresh=True, background=True) for n in stale))
-        await self._touch([r.username for r in results if r.is_free or r.status == "unknown"])
-        gone = [r.username for r in results if not r.is_free and r.status != "unknown"]
+        await self._touch([r.username for r in results if r.is_free or r.status in ("unknown", "likely")])
+        gone = [r.username for r in results if not r.is_free and r.status not in ("unknown", "likely")]
         if gone:
             await self._remove(gone)
             log.info("Запас ников: заняты, удалены — %s", ", ".join(gone))

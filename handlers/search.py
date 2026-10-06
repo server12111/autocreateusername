@@ -46,6 +46,10 @@ log = logging.getLogger(__name__)
 router = Router(name="search")
 
 MAX_TRAPS = 10  # у админов (ADMIN_IDS) ловушек без лимита
+LIKELY_NOTE = (
+    "\n\n🟡 <i>Вероятно свободен: Telegram сейчас ограничил точную проверку, ник проверен по t.me "
+    "и Fragment. Обычно он свободен, но изредка оказывается зарезервирован</i>"
+)
 TRAPS_SHOWN = 50  # больше не выводим списком: лимиты Telegram на длину сообщения и число кнопок
 _in_progress: set[int] = set()
 
@@ -253,6 +257,8 @@ async def _run_search(
     user.total_searches_done += 1
     await session.commit()
     text = FOUND_TEXT.format(username=result.username, length=len(result.username))
+    if result.is_likely:
+        text += LIKELY_NOTE
     await msg.edit_text(text, reply_markup=inline.found_kb(result.username, mode, row.id), disable_web_page_preview=True)
 
 
@@ -457,13 +463,14 @@ async def _run_word_search(
     await session.commit()
     await state.update_data(word_pos=new_pos, word_ids=ids, word_trap=can_trap)
 
-    lines = [f"{i}. <code>@{r.username}</code>" for i, r in enumerate(found, 1)]
+    lines = [f"{i}. <code>@{r.username}</code>{' 🟡' if r.is_likely else ''}" for i, r in enumerate(found, 1)]
     head = "🎉 Само слово свободно!\n\n" if exact is not None and exact in found else ""
     text = (
         f"✍️ <b>Свободные ники по слову «{word}»</b>\n\n{head}"
         + "\n".join(lines)
         + exact_line
-        + "\n\n👆 Нажмите на ник, чтобы скопировать. Занимайте скорее — свободные ники быстро разбирают."
+        + "\n\n👆 Нажмите на ник, чтобы скопировать. Занимайте скорее — свободные ники быстро разбирают"
+        + (LIKELY_NOTE if any(r.is_likely for r in found) else "")
     )
     await msg.edit_text(text, reply_markup=inline.word_found_kb(word, new_pos < len(names), can_trap))
 
@@ -645,7 +652,7 @@ async def network_statuses(checker: UsernameChecker, name: str) -> dict[str, tup
             res = await checker.check(name, fresh=True)
         # Зарезервирован Telegram или продан/продаётся на Fragment — сам по себе не освободится,
         # ловить его бессмысленно; ловим только ники, занятые аккаунтом, каналом или ботом
-        status = {"free": "free", "unknown": "unknown", "invalid": "invalid", "taken": "taken"}.get(res.status, "reserved")
+        status = {"free": "free", "unknown": "unknown", "likely": "unknown", "invalid": "invalid", "taken": "taken"}.get(res.status, "reserved")
         label = STATUS_TEXT.get(res.status, res.status)
         if res.fragment_price:
             label += f" ({res.fragment_price} TON)"
