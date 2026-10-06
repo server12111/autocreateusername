@@ -127,7 +127,14 @@ async def pay_check(call: CallbackQuery, session: AsyncSession, user: User) -> N
     if not inv or inv.user_id != user.tg_id:
         await call.answer("Счёт не найден", show_alert=True)
         return
-    status, receipt = await check_crypto_invoice(session, inv)
+    try:
+        status, receipt = await check_crypto_invoice(session, inv)
+    except Exception:
+        log.exception("Ошибка проверки счёта %s", inv_id)
+        # Счёт остаётся неоплаченным в базе — фоновая проверка начислит его при следующем проходе
+        await call.answer("⚠️ Не получилось проверить оплату. Если вы оплатили — покупка начислится "
+                          "автоматически в течение минуты.", show_alert=True)
+        return
     if receipt:
         await call.answer("✅ Оплата получена!")
         await safe_edit(call, receipt, inline.back_kb("menu:main", "🏠 Главное меню"))
@@ -141,5 +148,15 @@ async def pay_check(call: CallbackQuery, session: AsyncSession, user: User) -> N
 
 @payments_router.message(F.successful_payment)
 async def successful_payment(message: Message, session: AsyncSession, user: User) -> None:
-    receipt = await process_payment(session, user, message.successful_payment)
+    payment = message.successful_payment
+    try:
+        receipt = await process_payment(session, user, payment)
+    except Exception:
+        # Подробности уже в логе (process_payment); Telegram платёж повторно не пришлёт — даём ID для поддержки
+        await message.answer(
+            "⚠️ Оплата получена, но начислить покупку автоматически не удалось.\n\n"
+            "Напишите в поддержку и укажите ID транзакции — начислим вручную:\n"
+            f"<code>{payment.telegram_payment_charge_id}</code>"
+        )
+        return
     await message.answer(receipt, reply_markup=inline.back_kb("menu:main", "🏠 Главное меню"))

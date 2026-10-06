@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from aiogram import Bot
 from aiogram.types import LabeledPrice, SuccessfulPayment
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import PREMIUM_PLANS, PRICES_USD, SEARCH_PACKS
@@ -77,15 +78,24 @@ async def _grant(session: AsyncSession, user: User, payload: str, paid: str, tx_
 
 
 async def process_payment(session: AsyncSession, user: User, payment: SuccessfulPayment) -> str:
-    """Начисляет покупку за Stars и возвращает текст чека."""
-    is_new = await crud.add_payment(
-        session, user.tg_id, payment.invoice_payload, payment.total_amount, payment.telegram_payment_charge_id
-    )
-    if not is_new:
+    """Начисляет покупку за Stars и возвращает текст чека.
+
+    Платёж и покупка сохраняются одним commit: Telegram не присылает successful_payment повторно,
+    поэтому при сбое между шагами покупка не должна потеряться отдельно от записи о платеже.
+    """
+    charge_id = payment.telegram_payment_charge_id
+    user_id = user.tg_id  # после rollback объект user устаревает — читаем ID заранее
+    if not await crud.stage_payment(session, user_id, payment.invoice_payload, payment.total_amount, charge_id):
         return "ℹ️ Этот платёж уже был обработан."
-    return await _grant(
-        session, user, payment.invoice_payload, f"{payment.total_amount} ⭐️", payment.telegram_payment_charge_id
-    )
+    try:
+        return await _grant(session, user, payment.invoice_payload, f"{payment.total_amount} ⭐️", charge_id)
+    except IntegrityError:
+        await session.rollback()
+        return "ℹ️ Этот платёж уже был обработан."
+    except Exception:
+        await session.rollback()
+        log.exception("Не удалось начислить оплату Stars %s пользователю %s", charge_id, user_id)
+        raise
 
 
 # ───────────────────────── CryptoBot / xRocket ─────────────────────────
@@ -141,30 +151,33 @@ async def poll_crypto_invoices(bot: Bot) -> None:
     """Фоновая проверка: начисляет оплаченные счета, даже если пользователь не нажал «Проверить»."""
     async with session_maker() as session:
         await crud.expire_stale_crypto_invoices(session)
-        pending = await crud.pending_crypto_invoices(session)
-        by_provider: dict[str, list[CryptoInvoice]] = {}
-        for inv in pending:
-            by_provider.setdefault(inv.provider, []).append(inv)
+        # Запоминаем только простые значения: после rollback ORM-объекты устаревают,
+        # и обращение к их полям в асинхронной сессии падает (MissingGreenlet)
+        by_provider: dict[str, list[tuple[int, str]]] = {}
+        for inv in await crud.pending_crypto_invoices(session):
+            by_provider.setdefault(inv.provider, []).append((inv.id, inv.invoice_id))
 
         for provider, invoices in by_provider.items():
             if provider not in crypto_pay.enabled_providers():
                 continue
             for i in range(0, len(invoices), 100):
                 chunk = invoices[i : i + 100]
-                statuses = await crypto_pay.get_statuses(provider, [inv.invoice_id for inv in chunk])
-                for inv in chunk:
-                    status = statuses.get(inv.invoice_id)
+                statuses = await crypto_pay.get_statuses(provider, [ext_id for _, ext_id in chunk])
+                for inv_id, ext_id in chunk:
+                    status = statuses.get(ext_id)
                     if status == "paid":
                         try:
+                            inv = await crud.get_crypto_invoice(session, inv_id)
+                            user_id = inv.user_id
                             receipt = await complete_crypto_invoice(session, inv)
                         except Exception:
-                            log.exception("Не удалось начислить оплату по счёту %s:%s", provider, inv.invoice_id)
+                            log.exception("Не удалось начислить оплату по счёту %s:%s", provider, ext_id)
                             await session.rollback()
                             continue
                         if receipt:
-                            await _notify(bot, inv.user_id, receipt)
+                            await _notify(bot, user_id, receipt)
                     elif status in ("expired", "cancelled"):
-                        await crud.set_crypto_invoice_status(session, inv.id, "expired")
+                        await crud.set_crypto_invoice_status(session, inv_id, "expired")
 
 
 async def _notify(bot: Bot, user_id: int, receipt: str) -> None:

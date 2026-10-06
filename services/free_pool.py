@@ -139,7 +139,8 @@ class FreeNamePool:
                 if not activity.idle(self.QUIET_SEC):
                     await asyncio.sleep(2)
                     continue
-                if await self._refill_step() or await self._recheck_step():
+                # Сначала перепроверка устаревших (её мало), иначе пока запас не полон — она бы не шла
+                if await self._recheck_step() or await self._refill_step():
                     await asyncio.sleep(self.PAUSE)
                 else:
                     await asyncio.sleep(10)  # запас полный и свежий

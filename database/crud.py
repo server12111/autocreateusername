@@ -419,6 +419,16 @@ async def add_payment(
     return True
 
 
+async def stage_payment(
+    session: AsyncSession, user_id: int, payload: str, amount: int, charge_id: str, currency: str = "XTR"
+) -> bool:
+    """Как add_payment, но БЕЗ commit — его сделает начисление покупки. False — платёж уже учтён."""
+    if await session.scalar(select(Payment.id).where(Payment.charge_id == charge_id)):
+        return False
+    session.add(Payment(user_id=user_id, payload=payload, amount=amount, currency=currency, charge_id=charge_id))
+    return True
+
+
 async def add_crypto_invoice(
     session: AsyncSession, provider: str, invoice_id: str, user_id: int, payload: str, amount_usd: str,
     pay_url: str, ttl_sec: int,
@@ -480,8 +490,7 @@ async def claim_paid_crypto_invoice(session: AsyncSession, inv: CryptoInvoice, c
         update(CryptoInvoice).where(CryptoInvoice.id == inv.id, CryptoInvoice.status == "active").values(status="paid")
     )
     if res.rowcount != 1:
-        await session.rollback()
-        return False
+        return False  # UPDATE ничего не изменил — откатывать нечего (rollback устарил бы объекты сессии)
     session.add(
         Payment(user_id=inv.user_id, payload=inv.payload, amount=cents, currency="USD",
                 charge_id=f"{inv.provider}:{inv.invoice_id}")
