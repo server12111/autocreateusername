@@ -133,18 +133,66 @@ async def social_to_trap(call: CallbackQuery, user: User, state: FSMContext) -> 
 # ───────────────────────── Ник, свободный везде ─────────────────────────
 
 
+def _find_text(selected: list[str]) -> str:
+    where = ", ".join(f"{social_checker.icon(c)} {social_checker.ALL[c].title}" for c in inline.FIND_NETWORKS
+                      if c in selected) or "—"
+    return (
+        "🎯 <b>НИК, СВОБОДНЫЙ ВЕЗДЕ</b>\n\n"
+        "Отметьте, где ник должен быть свободен — бот найдёт красивый ник из 6 букв, "
+        "свободный во всех отмеченных сетях.\n\n"
+        f"Сейчас: {where}"
+    )
+
+
+async def _find_selection(state: FSMContext) -> list[str]:
+    selected = (await state.get_data()).get("find_nets")
+    return list(inline.FIND_NETWORKS) if selected is None else selected
+
+
 @router.callback_query(F.data == "soc:find")
-async def social_find(call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker) -> None:
+async def social_find(call: CallbackQuery, user: User, state: FSMContext) -> None:
     if not await _premium_gate(call, user):
         return
-    await _guarded(call, user, _find_everywhere(call, session, user, checker))
+    selected = await _find_selection(state)
+    await call.answer()
+    await safe_edit(call, _find_text(selected), inline.find_networks_kb(selected))
 
 
-async def _find_everywhere(call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker) -> None:
-    wait_text = ("⏳ <b>Ищу ник, свободный везде</b>\n\n"
-                 "Проверяю варианты в X, YouTube, TikTok и Telegram…")
+@router.callback_query(F.data.startswith("soc:fnet:"))
+async def social_find_toggle(call: CallbackQuery, state: FSMContext) -> None:
+    code = call.data.split(":", 2)[2]
+    if code not in inline.FIND_NETWORKS:
+        await call.answer()
+        return
+    selected = await _find_selection(state)
+    selected = [c for c in selected if c != code] if code in selected else selected + [code]
+    await state.update_data(find_nets=selected)
+    await call.answer()
+    await safe_edit(call, _find_text(selected), inline.find_networks_kb(selected))
+
+
+@router.callback_query(F.data == "soc:fgo")
+async def social_find_go(
+    call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext, checker: UsernameChecker
+) -> None:
+    if not await _premium_gate(call, user):
+        return
+    selected = await _find_selection(state)
+    if not selected:
+        await call.answer("Отметьте хотя бы одну сеть", show_alert=True)
+        return
+    await _guarded(call, user, _find_everywhere(call, session, user, checker, selected))
+
+
+async def _find_everywhere(
+    call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker, selected: list[str]
+) -> None:
+    order = [c for c in inline.FIND_NETWORKS if c in selected]
+    titles = ", ".join(social_checker.ALL[c].title for c in order)
+    wait_text = f"⏳ <b>Ищу ник, свободный в: {titles}</b>\n\nГенерирую варианты и проверяю их…"
     msg = await _wait_message(call, wait_text)
     ticker = asyncio.create_task(_tick(msg, wait_text))
+    socials = [c for c in order if c != "tg"]
     found = None
     try:
         seen = await crud.recently_checked_by_user(session, user.tg_id, since_hours=24 * 7)
@@ -157,9 +205,9 @@ async def _find_everywhere(call: CallbackQuery, session: AsyncSession, user: Use
                     seen.add(n)
                     batch.append(n)
             # Сначала дешёвые проверки соцсетей, Telegram (лимиты аккаунтов) — только для прошедших
-            for name in await social_checker.free_everywhere(batch):
-                res = await checker.check(name)
-                if res.is_free:
+            candidates = await social_checker.free_everywhere(batch, socials) if socials else batch
+            for name in candidates:
+                if "tg" not in order or (await checker.check(name)).is_free:
                     found = name
                     break
     except CheckerUnavailable:
@@ -169,25 +217,33 @@ async def _find_everywhere(call: CallbackQuery, session: AsyncSession, user: Use
 
     kb = InlineKeyboardBuilder()
     if not found:
-        kb.button(text="🔄 Попробовать ещё", callback_data="soc:find")
+        kb.button(text="🔄 Попробовать ещё", callback_data="soc:fgo")
+        kb.button(text="⚙️ Выбрать сети", callback_data="soc:find")
         kb.button(text="🔙 Назад", callback_data="menu:social")
         kb.adjust(1)
-        await msg.edit_text("😔 За полторы минуты не нашлось ника, свободного сразу везде. Попробуйте ещё раз.",
-                            reply_markup=kb.as_markup())
+        await msg.edit_text(
+            f"😔 За полторы минуты не нашлось ника, свободного сразу в: {titles}.\n\n"
+            "Попробуйте ещё раз или снимите галочку с какой-нибудь сети.",
+            reply_markup=kb.as_markup(),
+        )
         return
 
-    row = await crud.add_search(session, user.tg_id, found, True, True, "free")
+    # Без Telegram ник может быть занят там — пишем отдельным статусом, чтобы не портить статистику Telegram
+    status = "free" if "tg" in order else "social"
+    row = await crud.add_search(session, user.tg_id, found, "tg" in order, True, status)
     user.total_searches_done += 1
     await session.commit()
-    statuses = {"tg": ("free", social_checker.STATUS_MARK["free"])}
-    statuses.update({c: ("free", social_checker.STATUS_MARK["free"]) for c in social_checker.SOCIAL})
-    kb.button(text="🔄 Найти ещё", callback_data="soc:find")
+    statuses = {c: ("free", social_checker.STATUS_MARK["free"]) for c in order}
+    kb.button(text="🔄 Найти ещё", callback_data="soc:fgo")
     kb.button(text="📁 В мои находки", callback_data=f"s:save:{row.id}")
+    kb.button(text="⚙️ Выбрать сети", callback_data="soc:find")
     kb.button(text="🔙 Назад", callback_data="menu:social")
-    kb.adjust(2, 1)
+    kb.adjust(2, 1, 1)
     await msg.edit_text(
-        f"🎉 <b>@{found}</b> свободен везде!\n\n{format_statuses(found, statuses)}\n\n"
-        "⚡️ Занимайте скорее — сразу во всех сетях, пока не забрали.",
+        f"🎉 <b>@{found}</b> свободен в: {titles}!\n\n{format_statuses(found, statuses)}\n\n"
+        "⚡️ Занимайте скорее, пока не забрали.",
         reply_markup=kb.as_markup(),
         disable_web_page_preview=True,
     )
+
+

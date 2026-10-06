@@ -140,10 +140,11 @@ async def check_all(name: str, codes=None, use_cache: bool = True) -> dict[str, 
 FUNNEL = ("x", "yt", "tt")  # порядок отсева: X строже всех, TikTok — самый капризный, его в конце
 
 
-async def free_everywhere(names: list[str]) -> list[str]:
-    """Ники, свободные во всех соцсетях. Проверяем воронкой: следующая сеть — только для прошедших."""
+async def free_everywhere(names: list[str], codes=None) -> list[str]:
+    """Ники, свободные во всех выбранных соцсетях (по умолчанию — во всех).
+    Проверяем воронкой: следующая сеть — только для прошедших предыдущую."""
     alive = list(names)
-    for code in FUNNEL:
+    for code in (c for c in FUNNEL if codes is None or c in codes):
         if not alive:
             break
         results = await asyncio.gather(*(check(code, n) for n in alive))

@@ -125,6 +125,21 @@ def trap_networks_kb(catchable: list[str], selected: list[str]) -> InlineKeyboar
     return kb.as_markup()
 
 
+FIND_NETWORKS = ("tg", "yt", "x", "tt")
+
+
+def find_networks_kb(selected: list[str]) -> InlineKeyboardMarkup:
+    """Галочки «где ник должен быть свободен» для поиска «Свободный везде»."""
+    kb = InlineKeyboardBuilder()
+    for code in FIND_NETWORKS:
+        mark = "✅" if code in selected else "⬜️"
+        kb.add(network_button(code, f"{social_checker.ALL[code].title} {mark}", callback_data=f"soc:fnet:{code}"))
+    kb.button(text="🎯 Искать", callback_data="soc:fgo")
+    kb.button(text="🔙 Назад", callback_data="menu:social")
+    kb.adjust(2, 2, 1, 1)
+    return kb.as_markup()
+
+
 def traps_kb(traps) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for t in traps:

@@ -280,7 +280,8 @@ async def get_findings(session: AsyncSession, user_id: int, limit: int = 10) -> 
         (
             await session.scalars(
                 select(SearchHistory)
-                .where(SearchHistory.user_id == user_id, SearchHistory.status_detail == "free")
+                # social — найден поиском «Свободный везде» без проверки Telegram
+                .where(SearchHistory.user_id == user_id, SearchHistory.status_detail.in_(("free", "social")))
                 .order_by(SearchHistory.is_saved.desc(), SearchHistory.created_at.desc())
                 .limit(limit)
             )
