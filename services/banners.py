@@ -10,7 +10,7 @@ from aiogram.types import LinkPreviewOptions
 from config import settings
 
 # Telegram кэширует превью по ссылке: при замене картинок увеличьте версию
-VERSION = 1
+VERSION = 2
 NAMES = {"main", "search", "social", "premium", "packs", "profile", "ref", "battle", "trap"}
 
 
