@@ -8,6 +8,7 @@ from config import DEFAULT_SETTINGS, REF_TIERS
 from database.models import (
     BattleVote,
     CryptoInvoice,
+    MTProtoAccount,
     NicknameTrap,
     Payment,
     Promocode,
@@ -558,6 +559,28 @@ async def expire_stale_crypto_invoices(session: AsyncSession, grace_sec: int = 6
     )
     await session.commit()
     return res.rowcount
+
+
+# ───────────────────────── MTProto-аккаунты ─────────────────────────
+
+
+async def list_mtproto_accounts(session: AsyncSession) -> list[MTProtoAccount]:
+    return list((await session.scalars(select(MTProtoAccount).order_by(MTProtoAccount.created_at))).all())
+
+
+async def save_mtproto_account(session: AsyncSession, name: str, session_string: str) -> None:
+    row = await session.get(MTProtoAccount, name)
+    if row:
+        row.session = session_string
+    else:
+        session.add(MTProtoAccount(name=name, session=session_string))
+    await session.commit()
+
+
+async def delete_mtproto_account(session: AsyncSession, name: str) -> bool:
+    res = await session.execute(delete(MTProtoAccount).where(MTProtoAccount.name == name))
+    await session.commit()
+    return res.rowcount > 0
 
 
 # ───────────────────────── battle ─────────────────────────

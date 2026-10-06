@@ -11,8 +11,12 @@ from telethon.errors import (
     UsernameNotOccupiedError,
     UsernamePurchaseAvailableError,
 )
+from telethon.sessions import SQLiteSession, StringSession
 from telethon.tl.functions.account import CheckUsernameRequest
 from telethon.tl.functions.contacts import ResolveUsernameRequest
+
+from database import crud
+from database.base import session_maker
 
 log = logging.getLogger(__name__)
 
@@ -123,42 +127,74 @@ class MTProtoPool:
         return sum(1 for w in self.workers if w.ready)
 
     async def init_pool(self) -> None:
-        os.makedirs(self.sessions_dir, exist_ok=True)
         if not self.api_id or not self.api_hash:
             log.warning("API_ID/API_HASH не заданы — MTProto-пул отключён, используется резервная проверка")
             return
-        for file in sorted(os.listdir(self.sessions_dir)):
-            if not file.endswith(".session"):
-                continue
-            path = os.path.join(self.sessions_dir, file[: -len(".session")])
+        await self._import_session_files()
+        async with session_maker() as s:
+            accounts = [(a.name, a.session) for a in await crud.list_mtproto_accounts(s)]
+        for name, session_string in accounts:
+            client = self._client(session_string)
             try:
-                client = TelegramClient(path, self.api_id, self.api_hash, flood_sleep_threshold=0)
                 await client.connect()
                 if await client.is_user_authorized():
-                    self.workers.append(_Worker(file, client))
-                    log.info("MTProto: сессия %s подключена", file)
+                    self.workers.append(_Worker(name, client))
+                    log.info("MTProto: аккаунт %s подключён", name)
                 else:
-                    log.warning("MTProto: сессия %s не авторизована", file)
+                    log.warning("MTProto: аккаунт %s больше не авторизован — удалите его в админке", name)
                     await client.disconnect()
             except Exception as e:
-                log.warning("MTProto: не удалось подключить %s: %s", file, e)
+                log.warning("MTProto: не удалось подключить %s: %s", name, e)
         log.info("MTProto-пул: %d аккаунтов", len(self.workers))
 
-    def has(self, file: str) -> bool:
-        return any(w.name == file for w in self.workers)
+    def _client(self, session_string: str = "") -> TelegramClient:
+        return TelegramClient(StringSession(session_string), self.api_id, self.api_hash, flood_sleep_threshold=0)
 
-    async def add_client(self, client: TelegramClient, file: str) -> None:
-        """Добавляет уже авторизованный клиент в пул (вход через админку)."""
-        client.flood_sleep_threshold = 0
-        self.workers = [w for w in self.workers if w.name != file]
-        self.workers.append(_Worker(file, client))
+    async def _import_session_files(self) -> None:
+        """Переносит старые .session-файлы из sessions/ в БД (файлы не трогаем — на всякий случай)."""
+        if not os.path.isdir(self.sessions_dir):
+            return
+        async with session_maker() as s:
+            known = {a.name for a in await crud.list_mtproto_accounts(s)}
+            for file in sorted(os.listdir(self.sessions_dir)):
+                if not file.endswith(".session") or file in known:
+                    continue
+                session_string = self._read_session_file(os.path.join(self.sessions_dir, file))
+                if session_string:
+                    await crud.save_mtproto_account(s, file, session_string)
+                    log.info("MTProto: сессия %s перенесена в базу данных", file)
 
-    async def add_session_file(self, file: str) -> tuple[bool, str]:
-        """Подключает .session из папки sessions/. Возвращает (успех, описание)."""
-        path = os.path.join(self.sessions_dir, file[: -len(".session")])
-        client = None
+    @staticmethod
+    def _read_session_file(path: str) -> str:
+        """Telethon .session (SQLite) -> строка StringSession. Пустая строка — сессия без ключа или битая."""
         try:
-            client = TelegramClient(path, self.api_id, self.api_hash, flood_sleep_threshold=0)
+            sqlite_session = SQLiteSession(path)  # путь с «.session» на конце
+            try:
+                return StringSession.save(sqlite_session)
+            finally:
+                sqlite_session.close()
+        except Exception as e:
+            log.warning("MTProto: не удалось прочитать %s: %s", path, e)
+            return ""
+
+    def has(self, name: str) -> bool:
+        return any(w.name == name for w in self.workers)
+
+    async def add_client(self, client: TelegramClient, name: str) -> None:
+        """Добавляет авторизованный клиент в пул и сохраняет его сессию в БД (вход через админку)."""
+        client.flood_sleep_threshold = 0
+        async with session_maker() as s:
+            await crud.save_mtproto_account(s, name, StringSession.save(client.session))
+        self.workers = [w for w in self.workers if w.name != name]
+        self.workers.append(_Worker(name, client))
+
+    async def add_session_file(self, path: str, name: str) -> tuple[bool, str]:
+        """Подключает загруженный .session: переводит в строку, проверяет и сохраняет в БД."""
+        session_string = self._read_session_file(path)
+        if not session_string:
+            return False, "файл не похож на сессию Telethon или в нём нет ключа авторизации"
+        client = self._client(session_string)
+        try:
             await client.connect()
             if not await client.is_user_authorized():
                 await client.disconnect()
@@ -166,30 +202,31 @@ class MTProtoPool:
             me = await client.get_me()
         except Exception as e:
             try:
-                if client:
-                    await client.disconnect()
+                await client.disconnect()
             except Exception:
                 pass
             return False, f"{type(e).__name__}: {e}"
-        await self.add_client(client, file)
+        await self.add_client(client, name)
         return True, f"{me.first_name or ''} (+{me.phone or '?'})"
 
-    async def remove(self, file: str) -> bool:
-        worker = next((w for w in self.workers if w.name == file), None)
+    async def remove(self, name: str) -> bool:
+        worker = next((w for w in self.workers if w.name == name), None)
         if worker:
             self.workers.remove(worker)
             try:
                 await worker.client.disconnect()
             except Exception:
                 pass
-        path = os.path.join(self.sessions_dir, file)
+        async with session_maker() as s:
+            deleted = await crud.delete_mtproto_account(s, name)
+        # Старый файл тоже убираем, иначе при запуске он снова импортируется в БД
+        path = os.path.join(self.sessions_dir, name)
         if os.path.exists(path):
             try:
                 os.remove(path)
             except OSError:
                 pass
-            return True
-        return worker is not None
+        return deleted or worker is not None
 
     def info(self) -> list[tuple[str, bool, int]]:
         """[(файл, готов, секунд FloodWait осталось)]"""

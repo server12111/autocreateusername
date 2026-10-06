@@ -138,6 +138,17 @@ class CryptoInvoice(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class MTProtoAccount(Base):
+    """Аккаунт пула проверки ников: сессия Telethon (StringSession) хранится в БД,
+    чтобы не пропадать при обновлении бота вместе с папкой sessions/."""
+
+    __tablename__ = "mtproto_accounts"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)  # обычно «79991234567.session»
+    session: Mapped[str] = mapped_column(Text)  # полный доступ к аккаунту — не показывать и не логировать
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class FreeName(Base):
     """Запас свободных ников, найденных в простое. Размер ограничен FreeNamePool.TARGET."""
 

@@ -11,6 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 from telethon.errors import (
     PasswordHashInvalidError,
     PhoneCodeExpiredError,
@@ -79,7 +80,7 @@ def _accounts_screen(pool: MTProtoPool):
     return text, kb.as_markup()
 
 
-async def _drop_login(admin_id: int, delete_file: bool = True) -> None:
+async def _drop_login(admin_id: int) -> None:
     data = _logins.pop(admin_id, None)
     if not data:
         return
@@ -87,8 +88,6 @@ async def _drop_login(admin_id: int, delete_file: bool = True) -> None:
         await data["client"].disconnect()
     except Exception:
         pass
-    if delete_file:
-        _safe_remove(os.path.join(settings.SESSIONS_DIR, data["file"]))
 
 
 @router.callback_query(F.data == "adm:acc")
@@ -138,14 +137,13 @@ async def acc_phone_input(message: Message, pool: MTProtoPool, state: FSMContext
         await message.answer("⚠️ Некорректный номер. Попробуйте ещё раз:", reply_markup=_cancel_kb())
         return
     await _drop_login(message.from_user.id)
-    os.makedirs(settings.SESSIONS_DIR, exist_ok=True)
     file = f"{phone[1:]}.session"
     if pool.has(file):
         await state.clear()
         await message.answer("ℹ️ Этот аккаунт уже есть в пуле.", reply_markup=_accounts_screen(pool)[1])
         return
-    path = os.path.join(settings.SESSIONS_DIR, phone[1:])
-    client = TelegramClient(path, settings.API_ID, settings.API_HASH)
+    # Сессия в памяти: после входа pool.add_client сохранит её в БД, файл не нужен
+    client = TelegramClient(StringSession(), settings.API_ID, settings.API_HASH)
     try:
         await client.connect()
         sent = await client.send_code_request(phone)
@@ -259,13 +257,18 @@ async def acc_upload_file(message: Message, bot: Bot, pool: MTProtoPool) -> None
     if pool.has(name):
         await message.answer(f"ℹ️ Аккаунт {name} уже в пуле.")
         return
-    os.makedirs(settings.SESSIONS_DIR, exist_ok=True)
-    path = os.path.join(settings.SESSIONS_DIR, name)
+    # Временный файл в подпапке (импорт старых сессий её не сканирует): сессия переносится в БД,
+    # сам файл после этого не нужен
+    upload_dir = os.path.join(settings.SESSIONS_DIR, "_upload")
+    os.makedirs(upload_dir, exist_ok=True)
+    path = os.path.join(upload_dir, f"{message.from_user.id}_{name}")
     await bot.download(message.document, destination=path)
-    ok, info = await pool.add_session_file(name)
+    try:
+        ok, info = await pool.add_session_file(path, name)
+    finally:
+        _safe_remove(path)
     if ok:
         await message.answer(f"✅ {html.escape(name)} добавлен: {html.escape(info)}\n\nМожно отправить ещё или вернуться:",
                              reply_markup=_accounts_screen(pool)[1])
     else:
-        _safe_remove(path)
         await message.answer(f"❌ {html.escape(name)} не подключён: {html.escape(info)}", reply_markup=_cancel_kb())
