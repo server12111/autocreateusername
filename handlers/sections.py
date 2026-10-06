@@ -75,7 +75,7 @@ async def build_search(session: AsyncSession, user: User, bot: Bot) -> Screen:
 
 
 async def premium_limit_phrase(session: AsyncSession) -> str:
-    """«до 25 юзернеймов в день» или «безлимитный», если лимит выключен в админке."""
+    """«до 25 юзернеймов в день» или «без лимита», если лимит выключен в админке."""
     limit = await crud.get_setting_int(session, "premium_daily_limit")
     return f"до {limit} юзернеймов в день" if limit > 0 else "без лимита"
 
@@ -86,6 +86,10 @@ async def build_shop(session: AsyncSession, user: User, bot: Bot) -> Screen:
 
 async def build_profile(session: AsyncSession, user: User, bot: Bot) -> Screen:
     premium = crud.premium_active(user)
+    free_left = user.free_searches_left
+    if premium:
+        daily = await crud.premium_daily_left(session, user)
+        free_left = f"сегодня {daily[0]} из {daily[1]} (Premium)" if daily else "♾"
     text = PROFILE_TEXT.format(
         user_id=user.tg_id,
         username=f"@{user.username}" if user.username else "не установлен",
@@ -93,7 +97,7 @@ async def build_profile(session: AsyncSession, user: User, bot: Bot) -> Screen:
         premium_status_text="💎 <b>Активен</b>" if premium else "❌ Неактивен",
         premium_until_info=f"⏳ Действует до: <b>{msk(user.premium_until):%d.%m.%Y %H:%M}</b> МСК\n" if premium else "",
         total_searches=user.total_searches_done,
-        free_left="♾" if premium else user.free_searches_left,
+        free_left=free_left,
         paid_left=user.paid_searches_left,
     )
     return text, inline.profile_kb()
