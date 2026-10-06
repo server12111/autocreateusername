@@ -71,9 +71,14 @@ async def premium_expiry(bot: Bot) -> None:
             user = await crud.get_user(session, uid)
             prices, pct = plan_prices(user)
             text = (
-                "⌛️ Срок вашей Premium-подписки истёк.\n\n"
-                "Продлите её, чтобы снова искать без задержек и пользоваться Ловушкой."
+                "⌛️ Срок вашей Premium-подписки истёк\n\n"
+                "Продлите её, чтобы снова искать без задержек и пользоваться Ловушкой"
             )
+            traps = len(await crud.get_user_traps(session, uid))
+            if traps:
+                # Ловушки — функция Premium: пока подписки нет, бот их не проверяет, но и не удаляет
+                text += (f"\n\n🪤 <b>Ваши ловушки на паузе: {traps}</b> — уведомлений об освобождении ников "
+                         "не будет. Продлите Premium, и они продолжат работать, ставить заново не нужно")
             if pct:
                 text += f"\n\n{discount_line(user)}"
             try:
@@ -93,11 +98,14 @@ async def premium_reminders(bot: Bot, session) -> None:
         if active:
             text += (
                 f"🎁 Продлите сейчас со скидкой <b>{active}%</b> — она действует до "
-                f"{msk(user.discount_until):%d.%m %H:%M} МСК, даже если Premium уже закончится.\n\n"
-                "Срок продления добавится к текущему — ничего не сгорит."
+                f"{msk(user.discount_until):%d.%m %H:%M} МСК, даже если Premium уже закончится\n\n"
+                "Срок продления добавится к текущему — ничего не сгорит"
             )
         else:
-            text += "Продлите заранее — срок добавится к текущему, ничего не сгорит."
+            text += "Продлите заранее — срок добавится к текущему, ничего не сгорит"
+        traps = len(await crud.get_user_traps(session, user.tg_id))
+        if traps:
+            text += f"\n\n🪤 Без Premium ваши ловушки ({traps}) встанут на паузу и перестанут сообщать об освобождении ников"
         try:
             await bot.send_message(user.tg_id, text, reply_markup=inline.renew_kb(prices, active))
         except Exception as e:
