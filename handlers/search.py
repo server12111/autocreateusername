@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from database import crud
 from database.models import User, msk, utcnow
 from handlers.sections import build_search, cooldown_left, safe_edit
@@ -41,7 +42,8 @@ from texts import (
 log = logging.getLogger(__name__)
 router = Router(name="search")
 
-MAX_TRAPS = 10
+MAX_TRAPS = 10  # у админов (ADMIN_IDS) ловушек без лимита
+TRAPS_SHOWN = 50  # больше не выводим списком: лимиты Telegram на длину сообщения и число кнопок
 _in_progress: set[int] = set()
 
 
@@ -458,8 +460,7 @@ async def search_word_trap(call: CallbackQuery, session: AsyncSession, user: Use
     if not word or not is_valid_username(word):
         await call.answer("Ловушку на это слово поставить нельзя", show_alert=True)
         return
-    if len(await crud.get_user_traps(session, user.tg_id)) >= MAX_TRAPS:
-        await call.answer(f"Достигнут лимит в {MAX_TRAPS} ловушек", show_alert=True)
+    if await _trap_limit_reached(call, session, user):
         return
     trap = await crud.add_trap(session, user.tg_id, word)
     if trap:
@@ -471,19 +472,34 @@ async def search_word_trap(call: CallbackQuery, session: AsyncSession, user: Use
 # ───────────────────────── Ловушка на ник ─────────────────────────
 
 
+def _trap_limit(user: User) -> int | None:
+    return None if user.tg_id in settings.admin_ids else MAX_TRAPS
+
+
+async def _trap_limit_reached(call: CallbackQuery, session: AsyncSession, user: User) -> bool:
+    limit = _trap_limit(user)
+    if limit is not None and len(await crud.get_user_traps(session, user.tg_id)) >= limit:
+        await call.answer(f"Достигнут лимит в {limit} ловушек", show_alert=True)
+        return True
+    return False
+
+
 async def _traps_screen(session: AsyncSession, user: User):
     traps = await crud.get_user_traps(session, user.tg_id)
     text = "🪤 <b>ЛОВУШКА НА НИК (СНАЙПЕР)</b>\n\n"
     if traps:
         text += "Активные ловушки:\n"
-        for t in traps:
+        for t in traps[:TRAPS_SHOWN]:
             checked = f"{msk(t.last_checked_at):%d.%m %H:%M} МСК" if t.last_checked_at else "ожидает"
             text += f"• <b>@{t.target_username}</b> — последняя проверка: {checked}\n"
+        if len(traps) > TRAPS_SHOWN:
+            text += f"…и ещё {len(traps) - TRAPS_SHOWN} — они тоже работают.\n"
         text += "\nНажмите на ник, чтобы удалить ловушку."
     else:
         text += "У вас пока нет активных ловушек.\n\nДобавьте занятый ник — бот сообщит, как только он освободится."
-    text += f"\n\nЛимит: {len(traps)}/{MAX_TRAPS}"
-    return text, inline.traps_kb(traps)
+    limit = _trap_limit(user)
+    text += f"\n\nЛимит: {len(traps)}/{limit}" if limit is not None else f"\n\nЛовушек: {len(traps)} (без лимита)"
+    return text, inline.traps_kb(traps[:TRAPS_SHOWN])
 
 
 @router.callback_query(F.data == "s:trap")
@@ -499,8 +515,7 @@ async def trap_menu(call: CallbackQuery, session: AsyncSession, user: User, stat
 async def trap_add(call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
     if not await _premium_gate(call, user):
         return
-    if len(await crud.get_user_traps(session, user.tg_id)) >= MAX_TRAPS:
-        await call.answer(f"Достигнут лимит в {MAX_TRAPS} ловушек", show_alert=True)
+    if await _trap_limit_reached(call, session, user):
         return
     await call.answer()
     await state.set_state(SearchStates.trap)
