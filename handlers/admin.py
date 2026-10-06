@@ -161,8 +161,11 @@ async def adm_health(call: CallbackQuery, checker: UsernameChecker, pool: MTProt
     # Соцсети: заведомо занятые ники должны вернуться как «taken»
     social_lines = ""
     for code, probe in (("yt", "youtube"), ("x", "elonmusk"), ("tt", "tiktok")):
+        social_checker.last_error.pop(code, None)
         st, t = await timed(social_checker.check(code, probe, use_cache=False))
         social_lines += f"{mark(st == 'taken')} {social_checker.ALL[code].title}: {html.escape(str(st))} — {t:.1f} сек\n"
+        if st != "taken" and social_checker.last_error.get(code):
+            social_lines += f"    ↳ <code>{html.escape(social_checker.last_error[code])}</code>\n"
     text = (
         "🩺 <b>ПРОВЕРКА СЕРВИСОВ</b> (с этого сервера)\n\n"
         f"{mark(tme is True)} t.me: {'отвечает' if tme is True else html.escape(str(tme))} — {t1:.1f} сек\n"

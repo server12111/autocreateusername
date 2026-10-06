@@ -35,7 +35,7 @@ TELEGRAM = Network("tg", "Telegram", "5352877806122447940", "✈️", "https://t
 YOUTUBE = Network("yt", "YouTube", "5355235592844095825", "▶️", "https://www.youtube.com/@{name}",
                   re.compile(r"[a-zA-Z0-9_.\-]{3,30}"))
 X = Network("x", "X (Twitter)", "5355148941878900494", "✖️", "https://x.com/{name}",
-            re.compile(r"[a-zA-Z0-9_]{4,15}"))
+            re.compile(r"[a-zA-Z0-9_]{5,15}"))  # 4-символьные X уже не выдаёт (invalid_username)
 TIKTOK = Network("tt", "TikTok", "5353034628263330616", "🎵", "https://www.tiktok.com/@{name}",
                  re.compile(r"[a-zA-Z0-9_.]{2,24}"))
 INSTAGRAM = Network("ig", "Instagram", "5355097780228470775", "📸", "https://www.instagram.com/{name}/",
@@ -64,7 +64,10 @@ async def _youtube(name: str) -> str:
     ) as resp:
         if resp.status == 404:
             return "free"
-        return "taken" if resp.status == 200 else "unknown"
+        if resp.status == 200:
+            return "taken"
+        _fail("yt", f"HTTP {resp.status}")
+        return "unknown"
 
 
 async def _x(name: str) -> str:
@@ -74,37 +77,58 @@ async def _x(name: str) -> str:
         headers=random_headers(), proxy=proxy(), timeout=_TIMEOUT,
     ) as resp:
         if resp.status != 200:
+            _fail("x", f"HTTP {resp.status}")
             return "unknown"
         data = await resp.json(content_type=None)
     if data.get("valid") is True:
         return "free"
-    if data.get("reason") == "taken":
+    reason = data.get("reason")
+    if reason == "taken":
         return "taken"
-    # is_banned_word, contains_banned_word и т. п. — ник никем не занят, но X его не даёт
+    if reason == "invalid_username":  # например, короче 5 символов — X такие больше не выдаёт
+        return "invalid"
+    # is_banned_word, contains_banned_word и т. п. — аккаунта может и не быть, но X этот ник не даёт
+    # (заблокированные слова, ники удалённых и забаненных аккаунтов)
     return "reserved"
 
 
 async def _tiktok(name: str) -> str:
-    # oEmbed лёгкий (десятки байт): 200 — профиль есть, 400 — нет. 400 бывает и при сбое,
-    # поэтому «свободен» подтверждаем по странице профиля (statusCode 10221 = пользователь не найден)
-    async with get_session().get(
-        "https://www.tiktok.com/oembed", params={"url": f"https://www.tiktok.com/@{name}"},
-        headers=random_headers(), proxy=proxy(), timeout=_TIMEOUT,
-    ) as resp:
-        if resp.status == 200:
-            return "taken"
-        if resp.status != 400:
-            return "unknown"
+    # oEmbed лёгкий (десятки байт): 200 — профиль есть, 400 — нет. 400 бывает и при сбое, а другие
+    # коды — при блокировке, поэтому во всех сомнительных случаях смотрим страницу профиля
+    # (statusCode 10221 — пользователь не найден, 0 — найден)
+    try:
+        async with get_session().get(
+            "https://www.tiktok.com/oembed", params={"url": f"https://www.tiktok.com/@{name}"},
+            headers=random_headers(), proxy=proxy(), timeout=_TIMEOUT,
+        ) as resp:
+            if resp.status == 200:
+                return "taken"
+            if resp.status != 400:
+                _fail("tt", f"oembed HTTP {resp.status}")
+    except Exception as e:
+        _fail("tt", f"oembed {type(e).__name__}")
     async with get_session().get(
         f"https://www.tiktok.com/@{name}", headers=random_headers(), proxy=proxy(),
         timeout=aiohttp.ClientTimeout(total=15),
     ) as resp:
         html = await resp.text()
+        page_status = resp.status
     if '"statusCode":10221' in html:
         return "free"
     if '"statusCode":0' in html:
         return "taken"
+    _fail("tt", f"страница HTTP {page_status}, {len(html)} байт, без данных профиля (капча или блокировка)")
     return "unknown"
+
+
+# Последняя причина, по которой сеть не ответила, — для диагностики в админке
+last_error: dict[str, str] = {}
+
+
+def _fail(code: str, reason: str) -> None:
+    if last_error.get(code) != reason:
+        log.warning("Соцсети: %s не ответил — %s", ALL[code].title, reason)
+    last_error[code] = reason
 
 
 _CHECKERS = {"yt": _youtube, "x": _x, "tt": _tiktok}
@@ -122,7 +146,8 @@ async def check(code: str, name: str, use_cache: bool = True) -> str:
         async with _sems[code]:
             status = await _CHECKERS[code](name)
     except Exception as e:
-        log.debug("Соцсети: %s %s — %r", code, name, e)
+        # Таймаут, обрыв соединения, блокировка провайдером — причину видно в диагностике админки
+        _fail(code, f"{type(e).__name__}: {e}"[:200] if str(e) else type(e).__name__)
         status = "unknown"
     if status != "unknown":
         _cache[key] = (status, time.monotonic())
@@ -155,7 +180,7 @@ async def free_everywhere(names: list[str], codes=None) -> list[str]:
 STATUS_MARK = {
     "free": "✅ свободен",
     "taken": "❌ занят",
-    "reserved": "🔒 зарезервирован сетью",
+    "reserved": "🔒 недоступен — сеть не даёт его занять",
     "invalid": "⛔️ не подходит по правилам сети",
     "unknown": "❔ не удалось проверить",
 }
