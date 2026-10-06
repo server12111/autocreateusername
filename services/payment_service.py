@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import PREMIUM_PLANS, PRICES_USD, SEARCH_PACKS
 from database import crud
 from database.base import session_maker
-from database.models import CryptoInvoice, User
+from database.models import CryptoInvoice, User, msk
 from services import crypto_pay
 
 log = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ async def _grant(session: AsyncSession, user: User, payload: str, paid: str, tx_
         lines += [
             f"📦 Товар: <b>Premium на {days} дн.</b>",
             f"💳 Оплачено: <b>{paid}</b>",
-            f"💎 Premium активен до: <b>{until:%d.%m.%Y %H:%M}</b> UTC",
+            f"💎 Premium активен до: <b>{msk(until):%d.%m.%Y %H:%M}</b> МСК",
         ]
     else:
         count, _ = SEARCH_PACKS[payload]

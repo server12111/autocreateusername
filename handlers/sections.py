@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import REF_TIERS
 from database import crud
-from database.models import User, utcnow
+from database.models import User, msk, utcnow
 from keyboards import inline
 from texts import MAIN_MENU_TEXT, PROFILE_TEXT, REF_TEXT, SEARCH_TEXT, SHARE_TEXT, SHOP_TEXT
 
@@ -81,9 +81,9 @@ async def build_profile(session: AsyncSession, user: User, bot: Bot) -> Screen:
     text = PROFILE_TEXT.format(
         user_id=user.tg_id,
         username=f"@{user.username}" if user.username else "не установлен",
-        reg_date=f"{user.registered_at:%d.%m.%Y}",
+        reg_date=f"{msk(user.registered_at):%d.%m.%Y}",
         premium_status_text="💎 <b>Активен</b>" if premium else "❌ Неактивен",
-        premium_until_info=f"⏳ Действует до: <b>{user.premium_until:%d.%m.%Y %H:%M}</b> UTC\n" if premium else "",
+        premium_until_info=f"⏳ Действует до: <b>{msk(user.premium_until):%d.%m.%Y %H:%M}</b> МСК\n" if premium else "",
         total_searches=user.total_searches_done,
         free_left="♾" if premium else user.free_searches_left,
         paid_left=user.paid_searches_left,

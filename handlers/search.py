@@ -10,7 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import crud
-from database.models import User, utcnow
+from database.models import User, msk, utcnow
 from handlers.sections import build_search, cooldown_left, safe_edit
 from keyboards import inline
 from services.free_pool import FreeNamePool, activity
@@ -294,7 +294,7 @@ async def _traps_screen(session: AsyncSession, user: User):
     if traps:
         text += "Активные ловушки:\n"
         for t in traps:
-            checked = f"{t.last_checked_at:%d.%m %H:%M}" if t.last_checked_at else "ожидает"
+            checked = f"{msk(t.last_checked_at):%d.%m %H:%M} МСК" if t.last_checked_at else "ожидает"
             text += f"• <b>@{t.target_username}</b> — последняя проверка: {checked}\n"
         text += "\nНажмите на ник, чтобы удалить ловушку."
     else:

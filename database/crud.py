@@ -16,6 +16,7 @@ from database.models import (
     Setting,
     SponsorChannel,
     User,
+    msk,
     utcnow,
 )
 
@@ -393,7 +394,7 @@ async def activate_promocode(session: AsyncSession, user: User, code: str) -> tu
         until = await add_premium_days(session, user, promo.reward_value)
         return True, (
             f"✅ Промокод активирован!\n\n💎 Начислено: <b>+{promo.reward_value} дн. Premium</b>\n"
-            f"Premium активен до: <b>{until:%d.%m.%Y %H:%M}</b> UTC"
+            f"Premium активен до: <b>{msk(until):%d.%m.%Y %H:%M}</b> МСК"
         )
     user.paid_searches_left += promo.reward_value
     await session.commit()

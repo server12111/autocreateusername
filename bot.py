@@ -101,7 +101,7 @@ async def main() -> None:
     )
 
     scheduler = AsyncIOScheduler(timezone="UTC")
-    scheduler.add_job(cleanup_db, "cron", hour=3, minute=0)
+    scheduler.add_job(cleanup_db, "cron", hour=0, minute=0)  # 00:00 UTC = 03:00 МСК
     scheduler.add_job(premium_expiry, "interval", minutes=5, args=[bot])
     scheduler.add_job(
         poll_crypto_invoices, "interval", seconds=30, args=[bot], max_instances=1, coalesce=True,

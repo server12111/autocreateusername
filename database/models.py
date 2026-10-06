@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -8,6 +8,14 @@ from database.base import Base
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+MSK_OFFSET = timedelta(hours=3)  # Москва: UTC+3 круглый год, без перехода на летнее время
+
+
+def msk(dt: datetime) -> datetime:
+    """В БД время хранится в UTC; пользователям показываем московское."""
+    return dt + MSK_OFFSET
 
 
 class User(Base):

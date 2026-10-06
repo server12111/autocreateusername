@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from database import crud
 from database.base import session_maker
-from database.models import User
+from database.models import User, msk
 from handlers.sections import safe_edit, send_screen
 from keyboards.inline import sponsor_bonus_kb
 from services.botohub_service import BotohubService
@@ -330,7 +330,7 @@ async def adm_sp_card(call: CallbackQuery, session: AsyncSession, sp_id: int) ->
         f"ID: <code>{ch.channel_id}</code>\n"
         f"Ссылка: {ch.invite_link}\n"
         f"Статус: {'🟢 активен' if ch.is_active else '🔴 выключен'}\n"
-        f"Добавлен: {ch.created_at:%d.%m.%Y}"
+        f"Добавлен: {msk(ch.created_at):%d.%m.%Y}"
     )
     await call.answer()
     await safe_edit(call, text, _kb(
@@ -562,9 +562,9 @@ def _user_card(u: User):
         f"ID: <code>{u.tg_id}</code>\n"
         f"Юзернейм: {'@' + u.username if u.username else '—'}\n"
         f"Имя: {html.escape(u.first_name or '')}\n"
-        f"Регистрация: {u.registered_at:%d.%m.%Y %H:%M}\n"
+        f"Регистрация: {msk(u.registered_at):%d.%m.%Y %H:%M} МСК\n"
         f"Капча: {'✅' if u.is_captcha_passed else '❌'}\n"
-        f"Premium: {f'💎 до {u.premium_until:%d.%m.%Y %H:%M}' if premium else '❌'}\n"
+        f"Premium: {f'💎 до {msk(u.premium_until):%d.%m.%Y %H:%M} МСК' if premium else '❌'}\n"
         f"Поиски: бесплатных {u.free_searches_left}, купленных {u.paid_searches_left}, всего {u.total_searches_done}\n"
         f"Бонус за подписку: {'получен' if u.sponsor_bonus_claimed else 'не получен'}\n"
         f"Рефералов: {u.referrals_count}\n"
@@ -615,7 +615,7 @@ async def adm_user_action(call: CallbackQuery, bot: Bot, session: AsyncSession, 
     notify = None
     if action == "pd":
         until = await crud.add_premium_days(session, u, int(parts[4]))
-        notify = f"🎁 Администратор начислил вам <b>+{parts[4]} дн. Premium</b>!\nДействует до {until:%d.%m.%Y %H:%M} UTC"
+        notify = f"🎁 Администратор начислил вам <b>+{parts[4]} дн. Premium</b>!\nДействует до {msk(until):%d.%m.%Y %H:%M} МСК"
     elif action == "pdc":
         await state.set_state(AdminStates.user_days)
         await state.update_data(target=u.tg_id)
@@ -673,7 +673,7 @@ async def adm_user_add_days(message: Message, bot: Bot, session: AsyncSession, s
     if n > 0:
         until = await crud.add_premium_days(session, u, n)
         try:
-            await bot.send_message(u.tg_id, f"🎁 Администратор начислил вам <b>+{n} дн. Premium</b>!\nДействует до {until:%d.%m.%Y %H:%M} UTC")
+            await bot.send_message(u.tg_id, f"🎁 Администратор начислил вам <b>+{n} дн. Premium</b>!\nДействует до {msk(until):%d.%m.%Y %H:%M} МСК")
         except Exception:
             pass
     elif n < 0 and u.premium_until:
@@ -693,7 +693,7 @@ async def _promo_screen(session: AsyncSession):
     if promos:
         for p in promos:
             reward = f"{p.reward_value} дн. Premium" if p.reward_type == "premium_days" else f"{p.reward_value} поисков"
-            exp = f", до {p.expires_at:%d.%m.%Y}" if p.expires_at else ""
+            exp = f", до {msk(p.expires_at):%d.%m.%Y}" if p.expires_at else ""
             text += f"{'🟢' if p.is_active else '🔴'} <code>{p.code}</code> — {reward}, {p.activations_count}/{p.max_activations}{exp}\n"
             kb.button(
                 text=f"{'🔴 Откл.' if p.is_active else '🟢 Вкл.'} {p.code}"[:40], callback_data=f"adm:pr:tog:{p.id}"

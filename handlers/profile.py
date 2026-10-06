@@ -5,7 +5,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import crud
-from database.models import User
+from database.models import User, msk
 from handlers.sections import build_profile, safe_edit
 from keyboards import inline
 from texts import FAQ_TEXT
@@ -48,7 +48,7 @@ async def my_findings(call: CallbackQuery, session: AsyncSession, user: User) ->
     if rows:
         for r in rows:
             star = "⭐️ " if r.is_saved else ""
-            text += f"{star}<b>@{r.username_query}</b> — {r.created_at:%d.%m.%Y %H:%M}\n"
+            text += f"{star}<b>@{r.username_query}</b> — {msk(r.created_at):%d.%m.%Y %H:%M}\n"
         text += "\n<i>⭐️ — сохранённые вами. Ник мог быть занят после проверки.</i>"
     else:
         text += "Здесь появятся свободные юзернеймы, найденные вами в поиске."
