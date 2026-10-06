@@ -27,7 +27,7 @@ from services.botohub_service import BotohubService
 from services.fragment_parser import FragmentParser
 from services.free_pool import FreeNamePool
 from services.mtproto_pool import MTProtoPool
-from services.op_manager import check_sponsors
+from services.op_manager import MAX_SHOWN, check_sponsors, reset_required_cache
 from services.tgrass_service import TgrassService
 from services.username_checker import UsernameChecker
 from texts import SPONSOR_BONUS_TEXT
@@ -203,7 +203,14 @@ async def adm_health(call: CallbackQuery, checker: UsernameChecker, pool: MTProt
 
 async def _sponsors_screen(session: AsyncSession):
     channels = await crud.get_sponsors(session, only_active=False)
-    text = "📢 <b>СОБСТВЕННЫЕ КАНАЛЫ ОП</b>\n\n"
+    reset_required_cache()  # список могли поменять — пусть пользователи перепроверятся сразу
+    text = (
+        "📢 <b>СВОИ КАНАЛЫ — ОБЯЗАТЕЛЬНАЯ ПОДПИСКА</b>\n\n"
+        "Пока пользователь не подписан на все активные каналы, бот ему недоступен "
+        f"(показываем до {MAX_SHOWN} каналов за раз). Бот должен быть админом канала, иначе канал "
+        "не проверяется и пропускается.\n\n"
+        "Спонсоры Tgrass и BotoHub — отдельно, за бонусные поиски.\n\n"
+    )
     text += "Нажмите на канал для управления.\n🟢 — активен, 🔴 — выключен." if channels else "Каналов пока нет."
     kb = InlineKeyboardBuilder()
     for ch in channels:

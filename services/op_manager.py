@@ -1,6 +1,11 @@
-"""Спонсорские каналы (свои + Tgrass + BotoHub): подписка на них даёт бонусные поиски."""
+"""Спонсорские каналы.
+
+Свои каналы администратора — обязательная подписка: без неё ботом пользоваться нельзя.
+Tgrass и BotoHub — по желанию, подписка на них даёт бонусные поиски.
+"""
 
 import logging
+import time
 from dataclasses import dataclass, field
 
 from aiogram import Bot
@@ -13,7 +18,9 @@ from services.tgrass_service import TgrassService
 
 log = logging.getLogger(__name__)
 
-MAX_SHOWN = 6  # сколько спонсоров показывать за раз; остальные появятся после подписки на эти
+MAX_SHOWN = 10  # сколько спонсоров показывать за раз; остальные появятся после подписки на эти
+REQUIRED_OK_TTL = 300  # сек: подписку на обязательные каналы перепроверяем не чаще раза в 5 минут
+_required_ok_until: dict[int, float] = {}
 
 
 @dataclass
@@ -33,20 +40,36 @@ class SponsorState:
         return self.available and not self.missing
 
 
-async def check_sponsors(bot: Bot, session: AsyncSession, user: User) -> SponsorState:
-    state = SponsorState()
-
-    # Собственные каналы администратора
+async def check_required(bot: Bot, session: AsyncSession, user: User, use_cache: bool = True) -> list[OpChannel]:
+    """Свои каналы администратора — обязательная подписка. Возвращает те, на которые пользователь
+    не подписан (не больше MAX_SHOWN). Пустой список — можно пользоваться ботом."""
+    if use_cache and _required_ok_until.get(user.tg_id, 0) > time.time():
+        return []
+    missing = []
     for ch in await crud.get_sponsors(session):
         try:
             member = await bot.get_chat_member(ch.channel_id, user.tg_id)
         except Exception as e:
-            # Бот не админ в канале или канал удалён — такой канал не учитываем
+            # Бот не админ в канале или канал удалён — такой канал не учитываем, иначе бот станет недоступен всем
             log.warning("ОП: не удалось проверить канал %s (%s): %s", ch.title, ch.channel_id, e)
             continue
-        state.available = True
         if member.status in ("left", "kicked"):
-            state.missing.append(OpChannel(ch.title, ch.invite_link))
+            missing.append(OpChannel(ch.title, ch.invite_link))
+            if len(missing) >= MAX_SHOWN:
+                break
+    if not missing:
+        _required_ok_until[user.tg_id] = time.time() + REQUIRED_OK_TTL
+    return missing
+
+
+def reset_required_cache() -> None:
+    """Сбросить кэш проверок — например, после добавления нового обязательного канала."""
+    _required_ok_until.clear()
+
+
+async def check_sponsors(bot: Bot, session: AsyncSession, user: User) -> SponsorState:
+    """Спонсоры за бонусные поиски: Tgrass и BotoHub (свои каналы — обязательные, см. check_required)."""
+    state = SponsorState()
 
     # Спонсоры Tgrass
     if len(state.missing) < MAX_SHOWN and await crud.get_setting(session, "tgrass_enabled") == "1":

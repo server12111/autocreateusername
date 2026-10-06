@@ -7,12 +7,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from database import crud
 from database.models import User
 from handlers.sections import build_main, build_search, safe_edit
-from keyboards.inline import captcha_kb, sponsor_bonus_kb
-from services.op_manager import check_sponsors, notify_referrer
-from texts import CAPTCHA_TEXT, SPONSOR_BONUS_TEXT
+from keyboards.inline import captcha_kb, required_sub_kb, sponsor_bonus_kb
+from services.op_manager import check_required, check_sponsors, notify_referrer
+from texts import CAPTCHA_TEXT, REQUIRED_SUB_TEXT, SPONSOR_BONUS_TEXT
 
 router = Router(name="start")
 
@@ -40,7 +41,26 @@ def _new_captcha(user_id: int) -> tuple[str, list[int]]:
 
 
 async def show_entry(event: Message | CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
+    """Главное меню — или список обязательных каналов, если пользователь на них не подписан."""
+    if user.tg_id not in settings.admin_ids:
+        missing = await check_required(bot, session, user)
+        if missing:
+            await safe_edit(event, REQUIRED_SUB_TEXT, required_sub_kb(missing))
+            return
+        await notify_referrer(bot, session, user)
     await safe_edit(event, *await build_main(session, user, bot))
+
+
+@router.callback_query(F.data == "op:check")
+async def required_sub_check(call: CallbackQuery, bot: Bot, session: AsyncSession, user: User) -> None:
+    """«✅ Я подписался» на экране обязательной подписки."""
+    missing = await check_required(bot, session, user, use_cache=False)
+    if missing:
+        await call.answer("Вы подписались не на все каналы — список ниже обновлён.", show_alert=True)
+        await safe_edit(call, REQUIRED_SUB_TEXT, required_sub_kb(missing))
+        return
+    await call.answer("✅ Спасибо за подписку!")
+    await show_entry(call, bot, session, user)
 
 
 @router.message(CommandStart())

@@ -1,5 +1,7 @@
 """Тексты интерфейса (HTML-разметка)."""
 
+from config import PREMIUM_PLANS, PRICES_USD, REF_TIERS, SEARCH_PACKS, plan_period, plural
+
 CAPTCHA_TEXT = (
     "🤖 <b>Проверка на человека</b>\n\n"
     "Пожалуйста, решите простой пример для доступа к боту:\n"
@@ -38,8 +40,23 @@ FOUND_TEXT = (
     "👉 https://t.me/{username}"
 )
 
+def _tree(lines: list[str]) -> str:
+    return "\n".join(("└ " if i == len(lines) - 1 else "├ ") + line for i, line in enumerate(lines))
+
+
+def _friends(n: int) -> str:
+    return f"{n} {plural(n, 'друг', 'друга', 'друзей')}"
+
+
+# Списки цен и наград собираются из config.py — менять цены нужно только там
+_PLANS_LIST = _tree([f"{plan_period(days)} — {price} ⭐️ Stars / ${PRICES_USD[key]}"
+                     for key, (days, price) in PREMIUM_PLANS.items()])
+_PACKS_LIST = _tree([f"{count} {plural(count, 'поиск', 'поиска', 'поисков')} — {price} ⭐️ / ${PRICES_USD[key]}"
+                     for key, (count, price) in SEARCH_PACKS.items()])
+_REF_LIST = "\n".join(f"• {_friends(need)} ➔ +{plan_period(days)} Premium" for need, days in REF_TIERS)
+
 SHOP_TEXT = (
-    "🛒 <b>МАГАЗИН И ТАРИФЫ PREMIUM</b>\n"
+    "💎 <b>PREMIUM И ТАРИФЫ</b>\n"
     "\n"
     "🔥 Возможности Premium подписки:\n"
     "• 🚀 Поиск юзернеймов — {limit}\n"
@@ -49,17 +66,11 @@ SHOP_TEXT = (
     "• 🎯 Продвинутый поиск по маскам и паттернам\n"
     "• 🪤 Снайпер-ловушка: автоматический перехват занятых ников\n\n"
     "💵 Доступные тарифы:\n"
-    "├ 1 день — 10 ⭐️ Stars / $0.12\n"
-    "├ 3 дня — 25 ⭐️ Stars / $0.30\n"
-    "├ 10 дней — 65 ⭐️ Stars / $0.77\n"
-    "└ 30 дней — 100 ⭐️ Stars / $1.19\n\n"
+    f"{_PLANS_LIST}\n\n"
     "💳 Оплата: Telegram Stars, CryptoBot или xRocket.\n"
     "⚙️ Подписка активируется моментально после оплаты.\n\n"
     "🎁 Либо получите Premium <b>БЕСПЛАТНО</b> за друзей:\n"
-    "• 3 друга ➔ +1 день Premium\n"
-    "• 10 друзей ➔ +3 дня Premium\n"
-    "• 15 друзей ➔ +10 дней Premium\n"
-    "• 35 друзей ➔ +25 дней Premium"
+    f"{_REF_LIST}"
 )
 
 PACKS_TEXT = (
@@ -67,9 +78,7 @@ PACKS_TEXT = (
     "\n"
     "Для тех, кому не нужна подписка. Купленные поиски не сгорают и тратятся "
     "после окончания бесплатных.\n\n"
-    "├ 10 поисков — 5 ⭐️ / $0.06\n"
-    "├ 50 поисков — 20 ⭐️ / $0.24\n"
-    "└ 150 поисков — 50 ⭐️ / $0.60\n\n"
+    f"{_PACKS_LIST}\n\n"
     "💳 Оплата: Telegram Stars, CryptoBot или xRocket."
 )
 
@@ -105,10 +114,9 @@ REF_TEXT = (
     "├ Приглашено активных друзей: <b>{ref_count}</b>\n"
     "└ Ваш текущий уровень: <b>{current_tier}</b>\n\n"
     "🎁 Уровни вознаграждений:\n"
-    "├ 3 друга — +1 день Premium {t1}\n"
-    "├ 10 друзей — +3 дня Premium {t2}\n"
-    "├ 15 друзей — +10 дней Premium {t3}\n"
-    "└ 35 друзей — +25 дней Premium {t4}\n\n"
+    + _tree([f"{_friends(need)} — +{plan_period(days)} Premium {{t{i}}}"
+             for i, (need, days) in enumerate(REF_TIERS, 1)])
+    + "\n\n"
     "{progress}\n\n"
     "<i>Друг засчитывается после прохождения капчи и подписки на каналы.</i>"
 )
@@ -188,6 +196,12 @@ SOCIAL_CHECK_PROMPT = (
     "Отправьте ник, например <code>@dreamer</code>:"
 )
 
+REQUIRED_SUB_TEXT = (
+    "📢 <b>ПОДПИШИТЕСЬ НА КАНАЛЫ</b>\n\n"
+    "Чтобы пользоваться ботом, подпишитесь на каналы ниже и нажмите "
+    "«✅ Я подписался»."
+)
+
 SPONSOR_BONUS_TEXT = (
     "🎁 <b>ПОЛУЧИТЕ +{bonus} БЕСПЛАТНЫХ ПОИСКА</b>\n\n"
     "👇 Подпишитесь на каналы наших спонсоров и нажмите «✅ Проверить подписку» — "
@@ -210,5 +224,5 @@ PAYWALL_TEXT = (
 
 PREMIUM_ONLY_TEXT = (
     "💎 <b>Режим доступен только в Premium</b>\n\n"
-    "Оформите подписку в Магазине или получите Premium бесплатно, пригласив друзей."
+    "Оформите подписку в разделе «💎 Премиум» или получите её бесплатно, пригласив друзей."
 )

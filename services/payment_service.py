@@ -7,7 +7,7 @@ from aiogram.types import LabeledPrice, SuccessfulPayment
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import PREMIUM_PLANS, PRICES_USD, SEARCH_PACKS
+from config import PREMIUM_PLANS, PRICES_USD, SEARCH_PACKS, plan_period
 from database import crud
 from database.base import session_maker
 from database.models import CryptoInvoice, User, msk, utcnow
@@ -20,7 +20,8 @@ def describe(payload: str) -> tuple[str, str, int] | None:
     """payload -> (заголовок, описание, цена в Stars)."""
     if payload in PREMIUM_PLANS:
         days, price = PREMIUM_PLANS[payload]
-        return f"Premium на {days} дн.", f"NameHunter Premium на {days} дн.: поиск без задержек, редкие ники, ловушки", price
+        period = plan_period(days)
+        return f"Premium на {period}", f"NameHunter Premium на {period}: поиск без задержек, редкие ники, ловушки", price
     if payload in SEARCH_PACKS:
         count, price = SEARCH_PACKS[payload]
         return f"{count} поисков", f"Пакет из {count} дополнительных поисков юзернеймов", price
@@ -114,7 +115,7 @@ async def _grant(session: AsyncSession, user: User, payload: str, paid: str, tx_
             user.discount_until = None
         until = await crud.add_premium_days(session, user, days)
         lines += [
-            f"📦 Товар: <b>Premium на {days} дн.</b>",
+            f"📦 Товар: <b>Premium на {plan_period(days)}</b>",
             f"💳 Оплачено: <b>{paid}</b>",
             f"💎 Premium активен до: <b>{msk(until):%d.%m.%Y %H:%M}</b> МСК",
         ]

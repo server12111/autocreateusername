@@ -3,7 +3,7 @@ from urllib.parse import quote
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import PREMIUM_PLANS, SEARCH_PACKS
+from config import PREMIUM_PLANS, SEARCH_PACKS, plan_period
 from services import social_checker
 from services.crypto_pay import PROVIDERS, provider_name
 
@@ -24,13 +24,22 @@ def main_menu_kb(support_url: str, battle_enabled: bool = True) -> InlineKeyboar
     kb = InlineKeyboardBuilder()
     kb.button(text="🔍 Поиск", callback_data="menu:search")
     kb.button(text="🌐 Ник в соцсетях", callback_data="menu:social")
-    kb.button(text="🛒 Магазин", callback_data="menu:shop")
+    kb.button(text="💎 Премиум", callback_data="menu:shop")
     kb.button(text="👤 Профиль", callback_data="menu:profile")
     kb.button(text="👥 Рефералы", callback_data="menu:ref")
     if battle_enabled:
         kb.button(text="⚔️ Битва Никнеймов", callback_data="menu:battle")
     kb.button(text="🆘 Поддержка", url=support_url or "https://t.me/")
     kb.adjust(2)
+    return kb.as_markup()
+
+
+def required_sub_kb(channels) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for ch in channels:
+        kb.button(text=f"📢 {ch.title}"[:64], url=ch.url)
+    kb.button(text="✅ Я подписался", callback_data="op:check")
+    kb.adjust(1)
     return kb.as_markup()
 
 
@@ -165,14 +174,15 @@ def _plan_buttons(kb: InlineKeyboardBuilder, prices: dict[str, int] | None, pct:
     for key, (days, price) in PREMIUM_PLANS.items():
         price = prices[key] if prices else price
         mark = f" (−{pct}%)" if pct else ""
-        kb.button(text=f"💎 {days} дн. — {price} ⭐️{mark}", callback_data=f"buy:{key}")
+        kb.button(text=f"💎 {plan_period(days)} — {price} ⭐️{mark}", callback_data=f"buy:{key}")
 
 
 def premium_plans_kb(prices: dict[str, int] | None = None, pct: int = 0) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     _plan_buttons(kb, prices, pct)
-    _back(kb, "menu:shop", "🔙 В магазин")
-    kb.adjust(1 if pct else 2, 1 if pct else 2, 1, 1, 1)
+    _back(kb, "menu:shop", "🔙 Назад")
+    # Со скидкой подписи длиннее — по одной кнопке в ряд
+    kb.adjust(*((1,) if pct else (2, 2, 1, 1)))
     return kb.as_markup()
 
 
@@ -181,7 +191,7 @@ def renew_kb(prices: dict[str, int] | None = None, pct: int = 0) -> InlineKeyboa
     kb = InlineKeyboardBuilder()
     _plan_buttons(kb, prices, pct)
     _back(kb, "menu:main", "🏠 Главное меню")
-    kb.adjust(1 if pct else 2, 1 if pct else 2, 1, 1, 1)
+    kb.adjust(*((1,) if pct else (2, 2, 1, 1)))
     return kb.as_markup()
 
 
@@ -189,7 +199,7 @@ def packs_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for key, (count, price) in SEARCH_PACKS.items():
         kb.button(text=f"🔍 {count} поисков — {price} ⭐️", callback_data=f"buy:{key}")
-    _back(kb, "menu:shop", "🔙 В магазин")
+    _back(kb, "menu:shop", "🔙 Назад")
     kb.adjust(1)
     return kb.as_markup()
 

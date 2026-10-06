@@ -30,6 +30,7 @@ from handlers import (
 from keyboards import inline
 from middlewares.captcha_mw import CaptchaMiddleware
 from middlewares.db_middleware import DbSessionMiddleware
+from middlewares.required_sub_mw import RequiredSubscriptionMiddleware
 from services.free_pool import FreeNamePool
 from services.http import close_session
 from services.mtproto_pool import BotResolver, MTProtoPool
@@ -127,6 +128,10 @@ async def main() -> None:
         observer.outer_middleware(db_mw)
     dp.message.outer_middleware(captcha_mw)
     dp.callback_query.outer_middleware(captcha_mw)
+    # После капчи — обязательная подписка на свои каналы администратора
+    required_sub_mw = RequiredSubscriptionMiddleware()
+    dp.message.outer_middleware(required_sub_mw)
+    dp.callback_query.outer_middleware(required_sub_mw)
 
 
     dp.include_routers(
