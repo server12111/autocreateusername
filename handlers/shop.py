@@ -76,7 +76,7 @@ async def buy(call: CallbackQuery, user: User) -> None:
         lines.insert(3, discount_line(user))
     lines += [f"{crypto_pay.provider_emoji_html(p)} {crypto_pay.provider_name(p)}: <b>${usd}</b>" for p in providers]
     if providers:
-        lines += ["", "В CryptoBot и xRocket можно оплатить криптовалютой (USDT, TON и др.)."]
+        lines += ["", "В CryptoBot и xRocket можно оплатить криптовалютой (USDT, TON и др.)"]
     lines += ["", "Выберите, как удобнее оплатить:"]
     await safe_edit(call, "\n".join(lines), inline.pay_method_kb(key, stars, usd, providers, _back_for(key)))
 
@@ -95,7 +95,7 @@ async def pay_crypto(call: CallbackQuery, session: AsyncSession, user: User) -> 
     except crypto_pay.CryptoPayError as e:
         log.warning("Не удалось создать счёт: %s", e)
         await call.answer(
-            f"⚠️ {crypto_pay.provider_name(provider)} сейчас не отвечает. Попробуйте позже или выберите другой способ.",
+            f"⚠️ {crypto_pay.provider_name(provider)} сейчас не отвечает. Попробуйте позже или выберите другой способ",
             show_alert=True,
         )
         return
@@ -110,10 +110,10 @@ async def pay_crypto(call: CallbackQuery, session: AsyncSession, user: User) -> 
         f"{crypto_pay.provider_emoji_html(provider)} <b>ОПЛАТА ЧЕРЕЗ {name.upper()}</b>\n\n"
         f"📦 Товар: <b>{title}</b>\n"
         f"💵 Сумма: <b>${inv.amount_usd}</b>{' (USDT)' if provider == 'xr' else ''}\n"
-        f"⏳ Счёт действует: <b>{left} мин.</b>\n\n"
-        f"1. Нажмите «Оплатить в {name}» и оплатите счёт.\n"
+        f"⏳ Счёт действует: <b>{left} мин</b>\n\n"
+        f"1. Нажмите «Оплатить в {name}» и оплатите счёт\n"
         "2. Покупка начислится автоматически в течение минуты. "
-        "Чтобы не ждать, нажмите «✅ Я оплатил — проверить»."
+        "Чтобы не ждать, нажмите «✅ Я оплатил — проверить»"
     )
     await safe_edit(call, text, inline.crypto_invoice_kb(provider, inv.pay_url, inv.id, f"buy:{key}"))
 
@@ -123,7 +123,7 @@ async def pre_checkout(query: PreCheckoutQuery, user: User) -> None:
     if validate_pre_checkout(query.invoice_payload, query.total_amount, query.currency, user):
         await query.answer(ok=True)
     else:
-        await query.answer(ok=False, error_message="Товар недоступен. Попробуйте оформить покупку заново.")
+        await query.answer(ok=False, error_message="Товар недоступен. Попробуйте оформить покупку заново")
 
 
 @payments_router.callback_query(F.data.startswith("pay:chk:"))
@@ -139,17 +139,17 @@ async def pay_check(call: CallbackQuery, session: AsyncSession, user: User) -> N
         log.exception("Ошибка проверки счёта %s", inv_id)
         # Счёт остаётся неоплаченным в базе — фоновая проверка начислит его при следующем проходе
         await call.answer("⚠️ Не получилось проверить оплату. Если вы оплатили — покупка начислится "
-                          "автоматически в течение минуты.", show_alert=True)
+                          "автоматически в течение минуты", show_alert=True)
         return
     if receipt:
         await call.answer("✅ Оплата получена!")
         await safe_edit(call, receipt, inline.back_kb("menu:main", "🏠 Главное меню"))
     elif status == "paid":
-        await call.answer("✅ Этот счёт уже оплачен, покупка начислена.", show_alert=True)
+        await call.answer("✅ Этот счёт уже оплачен, покупка начислена", show_alert=True)
     elif status == "expired":
-        await call.answer("⌛️ Срок счёта истёк. Создайте новый — выберите товар заново.", show_alert=True)
+        await call.answer("⌛️ Срок счёта истёк. Создайте новый — выберите товар заново", show_alert=True)
     else:
-        await call.answer("⏳ Оплата пока не поступила. Если вы уже оплатили — подождите минуту.", show_alert=True)
+        await call.answer("⏳ Оплата пока не поступила. Если вы уже оплатили — подождите минуту", show_alert=True)
 
 
 @payments_router.message(F.successful_payment)
@@ -160,7 +160,7 @@ async def successful_payment(message: Message, session: AsyncSession, user: User
     except Exception:
         # Подробности уже в логе (process_payment); Telegram платёж повторно не пришлёт — даём ID для поддержки
         await message.answer(
-            "⚠️ Оплата получена, но начислить покупку автоматически не удалось.\n\n"
+            "⚠️ Оплата получена, но начислить покупку автоматически не удалось\n\n"
             "Напишите в поддержку и укажите ID транзакции — начислим вручную:\n"
             f"<code>{payment.telegram_payment_charge_id}</code>"
         )

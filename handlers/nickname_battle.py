@@ -27,6 +27,8 @@ async def open_battle(call: CallbackQuery, bot: Bot, session: AsyncSession, user
 
 @router.callback_query(F.data.startswith("bt:v:"))
 async def vote(call: CallbackQuery, session: AsyncSession, user: User) -> None:
+    if not await _enabled(call, session):  # кнопки из старых сообщений после выключения битвы
+        return
     _, _, wi, li = call.data.split(":")
     try:
         winner, loser = BATTLE_POOL[int(wi)], BATTLE_POOL[int(li)]

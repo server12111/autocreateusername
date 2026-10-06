@@ -205,6 +205,14 @@ async def expire_premiums(session: AsyncSession) -> list[int]:
     return [u.tg_id for u in rows]
 
 
+async def bonus_sponsors_enabled(session: AsyncSession) -> bool:
+    """Включён ли хоть один источник спонсоров за бонусные поиски (Tgrass или BotoHub с ключом)."""
+    for name in ("tgrass", "botohub"):
+        if await get_setting(session, f"{name}_enabled") == "1" and await get_setting(session, f"{name}_api_key"):
+            return True
+    return False
+
+
 async def claim_sponsor_bonus(session: AsyncSession, user: User) -> int:
     """Разово начисляет бонус за подписку на спонсоров. Возвращает кол-во поисков (0 — уже получал)."""
     if user.sponsor_bonus_claimed:
@@ -476,17 +484,23 @@ async def activate_promocode(session: AsyncSession, user: User, code: str) -> tu
     if used:
         return False, "⚠️ Вы уже активировали этот промокод."
 
+    value, reward_type = promo.reward_value, promo.reward_type
     promo.activations_count += 1
     session.add(PromocodeActivation(promocode_id=promo.id, user_id=user.tg_id))
-    if promo.reward_type == "premium_days":
-        until = await add_premium_days(session, user, promo.reward_value)
-        return True, (
-            f"✅ Промокод активирован!\n\n💎 Начислено: <b>+{promo.reward_value} дн. Premium</b>\n"
-            f"Premium активен до: <b>{msk(until):%d.%m.%Y %H:%M}</b> МСК"
-        )
-    user.paid_searches_left += promo.reward_value
-    await session.commit()
-    return True, f"✅ Промокод активирован!\n\n🔍 Начислено: <b>+{promo.reward_value} поисков</b>"
+    try:
+        if reward_type == "premium_days":
+            until = await add_premium_days(session, user, value)
+            return True, (
+                f"✅ Промокод активирован!\n\n💎 Начислено: <b>+{value} дн. Premium</b>\n"
+                f"Premium активен до: <b>{msk(until):%d.%m.%Y %H:%M}</b> МСК"
+            )
+        user.paid_searches_left += value
+        await session.commit()
+    except IntegrityError:
+        # Код отправили дважды подряд: первая активация уже прошла, вторая упёрлась в уникальность
+        await session.rollback()
+        return False, "⚠️ Вы уже активировали этот промокод."
+    return True, f"✅ Промокод активирован!\n\n🔍 Начислено: <b>+{value} поисков</b>"
 
 
 # ───────────────────────── payments ─────────────────────────

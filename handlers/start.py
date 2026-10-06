@@ -56,7 +56,7 @@ async def required_sub_check(call: CallbackQuery, bot: Bot, session: AsyncSessio
     """«✅ Я подписался» на экране обязательной подписки."""
     missing = await check_required(bot, session, user, use_cache=False)
     if missing:
-        await call.answer("Вы подписались не на все каналы — список ниже обновлён.", show_alert=True)
+        await call.answer("Вы подписались не на все каналы — список ниже обновлён", show_alert=True)
         await safe_edit(call, REQUIRED_SUB_TEXT, required_sub_kb(missing))
         return
     await call.answer("✅ Спасибо за подписку!")
@@ -85,7 +85,7 @@ async def cmd_start(
         st = _captcha.get(user.tg_id)
         if st and st["blocked_until"] > time.time():
             left = int(st["blocked_until"] - time.time())
-            await message.answer(f"⛔️ Слишком много неверных ответов. Попробуйте через {left // 60 + 1} мин.")
+            await message.answer(f"⛔️ Слишком много неверных ответов. Попробуйте через {left // 60 + 1} мин")
             return
         text, opts = _new_captcha(user.tg_id)
         await message.answer(text, reply_markup=captcha_kb(opts))
@@ -106,7 +106,7 @@ async def captcha_answer(call: CallbackQuery, bot: Bot, session: AsyncSession, u
         await call.answer("Капча устарела, отправьте /start", show_alert=True)
         return
     if st["blocked_until"] > time.time():
-        await call.answer("⛔️ Вы временно заблокированы. Попробуйте позже.", show_alert=True)
+        await call.answer("⛔️ Вы временно заблокированы. Попробуйте позже", show_alert=True)
         return
 
     if int(call.data.split(":")[1]) == st["answer"]:
@@ -123,7 +123,7 @@ async def captcha_answer(call: CallbackQuery, bot: Bot, session: AsyncSession, u
         st["blocked_until"] = time.time() + BLOCK_SECONDS
         st.pop("answer", None)
         await call.answer()
-        await safe_edit(call, "⛔️ 3 неверных ответа подряд. Доступ заблокирован на 5 минут.\n\nЗатем отправьте /start")
+        await safe_edit(call, "⛔️ 3 неверных ответа подряд. Доступ заблокирован на 5 минут\n\nЗатем отправьте /start")
         return
     await call.answer(f"❌ Неверно! Осталось попыток: {MAX_FAILS - st['fails']}", show_alert=True)
     text, opts = _new_captcha(user.tg_id)
@@ -144,13 +144,13 @@ async def check_op(call: CallbackQuery, bot: Bot, session: AsyncSession, user: U
     if state.missing:
         bonus = await crud.get_setting_int(session, "sponsor_bonus")
         # Спонсоров показываем по 6: после подписки на первые в списке появляются следующие
-        await call.answer("Остались каналы без подписки — список ниже обновлён. Подпишитесь и проверьте ещё раз.",
+        await call.answer("Остались каналы без подписки — список ниже обновлён. Подпишитесь и проверьте ещё раз",
                           show_alert=True)
         await safe_edit(call, SPONSOR_BONUS_TEXT.format(bonus=bonus), sponsor_bonus_kb(state.missing))
         return
     bonus = await crud.claim_sponsor_bonus(session, user)
     await notify_referrer(bot, session, user)
-    await call.answer(f"✅ Подписка подтверждена! Начислено +{bonus} поиска.", show_alert=True)
+    await call.answer(f"✅ Подписка подтверждена! Начислено +{bonus} поиска", show_alert=True)
     await safe_edit(call, *await build_search(session, user, bot))
 
 

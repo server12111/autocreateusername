@@ -42,8 +42,8 @@ async def _style_screen(session: AsyncSession):
         f"✨ <b>ОФОРМЛЕНИЕ</b>\n\n"
         f"🎨 Цветные кнопки: <b>{'включены' if colors_on else 'выключены'}</b>\n"
         f"💎 Премиум-эмодзи: <b>{'включены' if emoji_on else 'выключены'}</b>\n"
-        f"├ встроенный анимированный пак Telegram: {len(BUNDLED_EMOJI)} шт.\n"
-        f"└ добавлено вами (важнее встроенных): {len(mapping)} шт.\n\n"
+        f"├ встроенный анимированный пак Telegram: {len(BUNDLED_EMOJI)} шт\n"
+        f"└ добавлено вами (важнее встроенных): {len(mapping)} шт\n\n"
     )
     if mapping:
         preview = " ".join(f'<tg-emoji emoji-id="{v}">{k}</tg-emoji>' for k, v in list(mapping.items())[:40])
@@ -52,7 +52,7 @@ async def _style_screen(session: AsyncSession):
         text += "Без премиум-версии: " + " ".join(missing) + "\n\n"
     text += (
         "<i>Премиум-эмодзи в сообщениях бота работают, только если у владельца бота есть "
-        "Telegram Premium. Иначе бот автоматически отправит обычные эмодзи.</i>"
+        "Telegram Premium. Иначе бот автоматически отправит обычные эмодзи</i>"
     )
     kb = InlineKeyboardBuilder()
     kb.button(text="➕ Добавить премиум-эмодзи", callback_data="adm:st:add")
@@ -100,8 +100,8 @@ async def style_add(call: CallbackQuery, state: FSMContext) -> None:
         "Отправьте сообщение с премиум-эмодзи (из любых паков, можно сразу много). "
         "Бот запомнит, какой обычный эмодзи каждый из них заменяет, — например, премиум 🔍 "
         "будет показываться везде вместо обычного 🔍.\n\n"
-        "Также можно вручную: <code>🔍 5368324170671202286</code> (по строке на эмодзи).\n\n"
-        "Можно отправить несколько сообщений подряд, затем нажмите «Готово».",
+        "Также можно вручную: <code>🔍 5368324170671202286</code> (по строке на эмодзи)\n\n"
+        "Можно отправить несколько сообщений подряд, затем нажмите «Готово»",
         kb.as_markup(),
     )
 
@@ -131,7 +131,7 @@ async def style_add_input(message: Message, session: AsyncSession) -> None:
     if not added:
         await message.answer(
             "⚠️ Премиум-эмодзи не найдены. Отправьте именно премиум-эмодзи (не обычные) "
-            "или строку вида <code>🔍 5368324170671202286</code>.",
+            "или строку вида <code>🔍 5368324170671202286</code>",
             reply_markup=kb.as_markup(),
         )
         return

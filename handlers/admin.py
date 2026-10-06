@@ -197,7 +197,7 @@ async def adm_health(call: CallbackQuery, checker: UsernameChecker, pool: MTProt
         f"📦 Запас готовых ников: 5 букв — {stock.get(5, 0)}, 6 букв — {stock.get(6, 0)}\n\n"
         "<i>Норма: все 🟢 и до 1–2 сек. Если сервис 🔴 или по 5+ сек — сервер его не видит "
         "(часто так на серверах в РФ: X и YouTube там блокируются), тогда нужен прокси "
-        "(HTTP_PROXY в .env) или сервер в другой стране.</i>"
+        "(HTTP_PROXY в .env) или сервер в другой стране</i>"
     )
     await call.message.answer(text, reply_markup=_kb(("🔄 Ещё раз", "adm:health"), ("🔙 К статистике", "adm:stats")))
 
@@ -212,10 +212,10 @@ async def _sponsors_screen(session: AsyncSession):
         "📢 <b>СВОИ КАНАЛЫ — ОБЯЗАТЕЛЬНАЯ ПОДПИСКА</b>\n\n"
         "Пока пользователь не подписан на все активные каналы, бот ему недоступен "
         f"(показываем до {MAX_SHOWN} каналов за раз). Бот должен быть админом канала, иначе канал "
-        "не проверяется и пропускается.\n\n"
-        "Спонсоры Tgrass и BotoHub — отдельно, за бонусные поиски.\n\n"
+        "не проверяется и пропускается\n\n"
+        "Спонсоры Tgrass и BotoHub — отдельно, за бонусные поиски\n\n"
     )
-    text += "Нажмите на канал для управления.\n🟢 — активен, 🔴 — выключен." if channels else "Каналов пока нет."
+    text += "Нажмите на канал для управления\n🟢 — активен, 🔴 — выключен" if channels else "Каналов пока нет"
     kb = InlineKeyboardBuilder()
     for ch in channels:
         kb.button(text=f"{'🟢' if ch.is_active else '🔴'} {ch.title}"[:60], callback_data=f"adm:sp:{ch.id}")
@@ -279,10 +279,10 @@ async def adm_sp_preview(call: CallbackQuery, bot: Bot, session: AsyncSession, u
     lines.append(f"\nИтого каналов на экране: <b>{len(state.missing)}</b>")
     if not state.available:
         lines.append(
-            "<i>Спонсоров нет ни в одном источнике — пользователь увидит «загляните позже», бонус не выдаётся.</i>"
+            "<i>Спонсоров нет ни в одном источнике — пользователь увидит «загляните позже», бонус не выдаётся</i>"
         )
     elif not state.missing:
-        lines.append("<i>Вы подписаны на всех спонсоров — по кнопке «Проверить подписку» начислится бонус.</i>")
+        lines.append("<i>Вы подписаны на всех спонсоров — по кнопке «Проверить подписку» начислится бонус</i>")
     lines.append(f"Бонус за подписку у вас: {'уже получен' if user.sponsor_bonus_claimed else 'не получен'}")
     await call.message.answer("\n".join(lines), reply_markup=_kb(("🔙 К каналам", "adm:sp")))
 
@@ -300,8 +300,8 @@ async def adm_sp_add(call: CallbackQuery, state: FSMContext) -> None:
     await safe_edit(
         call,
         "➕ <b>Добавление канала</b>\n\n"
-        "Отправьте <b>@username</b> канала, его <b>ID</b> (-100…) или <b>перешлите</b> пост из канала.\n\n"
-        "⚠️ Бот должен быть администратором канала, иначе проверить подписку невозможно.",
+        "Отправьте <b>@username</b> канала, его <b>ID</b> (-100…) или <b>перешлите</b> пост из канала\n\n"
+        "⚠️ Бот должен быть администратором канала, иначе проверить подписку невозможно",
         _kb(("❌ Отмена", "adm:sp")),
     )
 
@@ -328,7 +328,7 @@ async def adm_sp_chat(message: Message, bot: Bot, state: FSMContext) -> None:
     await message.answer(
         f"Канал: <b>{html.escape(chat.title or '')}</b> (<code>{chat.id}</code>)\n"
         f"Права бота: {'✅ администратор' if is_admin else '⚠️ НЕ администратор — проверка работать не будет!'}\n\n"
-        "Теперь отправьте <b>ссылку-приглашение</b> или «<code>-</code>», чтобы бот создал её сам.",
+        "Теперь отправьте <b>ссылку-приглашение</b> или «<code>-</code>», чтобы бот создал её сам",
         reply_markup=_kb(("❌ Отмена", "adm:sp")),
     )
 
@@ -351,7 +351,7 @@ async def adm_sp_link(message: Message, bot: Bot, session: AsyncSession, state: 
         return
     await crud.add_sponsor(session, data["sp_title"], data["sp_id"], link)
     await state.clear()
-    await message.answer(f"✅ Канал <b>{html.escape(data['sp_title'])}</b> добавлен в ОП.")
+    await message.answer(f"✅ Канал <b>{html.escape(data['sp_title'])}</b> добавлен в ОП")
     await send_screen(message, await _sponsors_screen(session))
 
 
@@ -422,7 +422,8 @@ async def _tgrass_screen(session: AsyncSession):
         f"🌱 <b>ИНТЕГРАЦИЯ TGRASS</b>\n\n"
         f"Статус: {'🟢 включена' if enabled else '🔴 выключена'}\n"
         f"API-ключ: <code>{masked}</code>\n\n"
-        "Каналы спонсоров Tgrass показываются в ОП вместе с вашими каналами.\n"
+        "Спонсоры Tgrass — за бонусные поиски (экран «+N поисков за подписку»). Ваши каналы из "
+        "«📢 Спонсоры» — отдельно, обязательная подписка\n"
         "Документация: https://tgrass.space/integration"
     )
     return text, _kb(
@@ -466,7 +467,7 @@ async def adm_tg_key_input(message: Message, session: AsyncSession, state: FSMCo
         await message.delete()
     except Exception:
         pass
-    await message.answer("✅ API-ключ сохранён.")
+    await message.answer("✅ API-ключ сохранён")
     await send_screen(message, await _tgrass_screen(session))
 
 
@@ -510,7 +511,7 @@ async def adm_bc(call: CallbackQuery, state: FSMContext) -> None:
     await safe_edit(
         call,
         "✉️ <b>РАССЫЛКА</b>\n\nОтправьте сообщение для рассылки: текст с форматированием, фото, видео, "
-        "GIF или документ с подписью.",
+        "GIF или документ с подписью",
         _kb(("❌ Отмена", "adm:home")),
     )
 
@@ -521,7 +522,7 @@ async def adm_bc_msg(message: Message, state: FSMContext) -> None:
     await state.set_state(AdminStates.bc_buttons)
     await message.answer(
         "🔘 Добавить инлайн-кнопки? Отправьте их по одной на строку в формате:\n"
-        "<code>Текст кнопки - https://example.com</code>\n\nИли отправьте «<code>-</code>», чтобы без кнопок.",
+        "<code>Текст кнопки - https://example.com</code>\n\nИли отправьте «<code>-</code>», чтобы без кнопок",
         reply_markup=_kb(("❌ Отмена", "adm:home")),
     )
 
@@ -565,6 +566,8 @@ async def _broadcast(bot: Bot, admin_id: int, from_chat: int, mid: int, buttons:
             except Exception:
                 errors += 1
                 break
+        else:
+            errors += 1  # три FloodWait подряд — сообщение так и не ушло
         await asyncio.sleep(0.04)  # ~25 сообщений/сек
         if i % 500 == 0:
             try:
@@ -588,7 +591,7 @@ async def adm_bc_go(call: CallbackQuery, bot: Bot, state: FSMContext) -> None:
         return
     await state.clear()
     await call.answer("🚀 Рассылка запущена")
-    await safe_edit(call, "🚀 Рассылка запущена в фоне. Отчёт придёт по завершении.", _kb(BACK))
+    await safe_edit(call, "🚀 Рассылка запущена в фоне. Отчёт придёт по завершении", _kb(BACK))
     asyncio.create_task(_broadcast(bot, call.from_user.id, data["bc_chat"], data["bc_mid"], data.get("bc_buttons")))
 
 
@@ -740,7 +743,7 @@ async def _promo_screen(session: AsyncSession):
             )
             kb.button(text=f"🗑 Удалить {p.code}"[:40], callback_data=f"adm:pr:del:{p.id}")
     else:
-        text += "Промокодов пока нет."
+        text += "Промокодов пока нет"
     kb.button(text="➕ Создать промокод", callback_data="adm:pr:new")
     kb.button(text=BACK[0], callback_data=BACK[1])
     kb.adjust(*([2] * len(promos)), 1, 1)
@@ -773,7 +776,7 @@ async def adm_promo_delete_confirm(call: CallbackQuery, session: AsyncSession) -
     await safe_edit(
         call,
         f"🗑 Удалить промокод <code>{promo.code}</code>?\n\n"
-        "Его больше нельзя будет активировать. Уже выданные награды у пользователей останутся.",
+        "Его больше нельзя будет активировать. Уже выданные награды у пользователей останутся",
         _kb(("🗑 Да, удалить", f"adm:pr:delok:{promo_id}"), ("❌ Отмена", "adm:promo"), width=2),
     )
 
@@ -815,10 +818,10 @@ async def adm_promo_create(message: Message, session: AsyncSession, state: FSMCo
         session, parts[0], types[parts[1]], int(parts[2]), int(parts[3]), int(parts[4]) if len(parts) == 5 else None
     )
     if not promo:
-        await message.answer("⚠️ Такой промокод уже существует.")
+        await message.answer("⚠️ Такой промокод уже существует")
         return
     await state.clear()
-    await message.answer(f"✅ Промокод <code>{promo.code}</code> создан.")
+    await message.answer(f"✅ Промокод <code>{promo.code}</code> создан")
     await send_screen(message, await _promo_screen(session))
 
 
@@ -897,5 +900,5 @@ async def adm_set_value(message: Message, session: AsyncSession, state: FSMConte
         return
     await crud.set_setting(session, key, value)
     await state.clear()
-    await message.answer("✅ Сохранено.")
+    await message.answer("✅ Сохранено")
     await send_screen(message, await _settings_screen(session))

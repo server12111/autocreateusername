@@ -110,7 +110,7 @@ async def _reserve_search(event: CallbackQuery | Message, session: AsyncSession,
     cooldown = await crud.get_setting_int(session, "search_cooldown_sec")
     left = cooldown_left(user, cooldown)
     if left:
-        msg = f"⏱ Подождите {left} сек. перед следующим поиском.\n\n💎 В Premium задержки нет!"
+        msg = f"⏱ Подождите {left} сек. перед следующим поиском\n\n💎 В Premium задержки нет!"
         if isinstance(event, CallbackQuery):
             await event.answer(msg, show_alert=True)
         else:
@@ -143,8 +143,8 @@ async def premium_limit_reached(event: CallbackQuery | Message, session: AsyncSe
     daily = await crud.premium_daily_left(session, user)
     if daily is None or daily[0] > 0:
         return False
-    text = (f"💎 Дневной лимит Premium исчерпан: {daily[1]} юзернеймов в сутки.\n\n"
-            f"Новые поиски — с 00:00 МСК (через {_until_msk_midnight()}).")
+    text = (f"💎 Дневной лимит Premium исчерпан: {daily[1]} юзернеймов в сутки\n\n"
+            f"Новые поиски — с 00:00 МСК (через {_until_msk_midnight()})")
     if isinstance(event, CallbackQuery):
         await event.answer(text, show_alert=True)
     else:
@@ -230,15 +230,15 @@ async def _run_search(
     except CheckerUnavailable:
         await _refund(session, user, source)
         await msg.edit_text(
-            "⚠️ Сервисы проверки (Telegram / Fragment) сейчас не отвечают.\n\n"
-            "Поиск <b>не списан</b> — попробуйте через пару минут.",
+            "⚠️ Сервисы проверки (Telegram / Fragment) сейчас не отвечают\n\n"
+            "Поиск <b>не списан</b> — попробуйте через пару минут",
             reply_markup=inline.retry_kb(mode),
         )
         return
     except Exception:
         log.exception("Ошибка поиска")
         await _refund(session, user, source)
-        await msg.edit_text("⚠️ Сервис проверки временно недоступен. Поиск <b>не списан</b> — попробуйте позже.",
+        await msg.edit_text("⚠️ Сервис проверки временно недоступен. Поиск <b>не списан</b> — попробуйте позже",
                             reply_markup=inline.retry_kb(mode))
         return
     finally:
@@ -246,9 +246,10 @@ async def _run_search(
 
     if not result:
         await _refund(session, user, source)
+        hint = "попробуйте другую маску" if mode == "m" else "попробуйте ещё раз"
         await msg.edit_text(
-            "😔 Свободных вариантов не нашлось — все комбинации заняты.\n\n"
-            "Поиск <b>не списан</b> — попробуйте другую маску.",
+            "😔 Свободных вариантов не нашлось — все комбинации заняты\n\n"
+            f"Поиск <b>не списан</b> — {hint}",
             reply_markup=inline.retry_kb(mode),
         )
         return
@@ -421,15 +422,15 @@ async def _run_word_search(
     except CheckerUnavailable:
         await _refund(session, user, source)
         await msg.edit_text(
-            "⚠️ Сервисы проверки (Telegram / Fragment) сейчас не отвечают.\n\n"
-            "Поиск <b>не списан</b> — попробуйте через пару минут.",
+            "⚠️ Сервисы проверки (Telegram / Fragment) сейчас не отвечают\n\n"
+            "Поиск <b>не списан</b> — попробуйте через пару минут",
             reply_markup=inline.retry_kb("word"),
         )
         return
     except Exception:
         log.exception("Ошибка поиска по слову")
         await _refund(session, user, source)
-        await msg.edit_text("⚠️ Сервис проверки временно недоступен. Поиск <b>не списан</b> — попробуйте позже.",
+        await msg.edit_text("⚠️ Сервис проверки временно недоступен. Поиск <b>не списан</b> — попробуйте позже",
                             reply_markup=inline.retry_kb("word"))
         return
     finally:
@@ -451,7 +452,7 @@ async def _run_word_search(
         await state.update_data(word_pos=len(names), word_ids=[], word_trap=can_trap)
         await msg.edit_text(
             f"😔 Свободных вариантов для «{word}» больше не нашлось.{exact_line}\n\n"
-            "Поиск <b>не списан</b> — попробуйте другое слово.",
+            "Поиск <b>не списан</b> — попробуйте другое слово",
             reply_markup=inline.word_found_kb(word, False, can_trap, can_save=False),
         )
         return
@@ -530,10 +531,10 @@ async def _traps_screen(session: AsyncSession, user: User):
             nets = "".join(social_checker.icon(c) for c in trap_networks(t))
             text += f"• <b>@{t.target_username}</b> {nets} — последняя проверка: {checked}\n"
         if len(traps) > TRAPS_SHOWN:
-            text += f"…и ещё {len(traps) - TRAPS_SHOWN} — они тоже работают.\n"
-        text += "\nНажмите на ник, чтобы удалить ловушку."
+            text += f"…и ещё {len(traps) - TRAPS_SHOWN} — они тоже работают\n"
+        text += "\nНажмите на ник, чтобы удалить ловушку"
     else:
-        text += "У вас пока нет активных ловушек.\n\nДобавьте занятый ник — бот сообщит, как только он освободится."
+        text += "У вас пока нет активных ловушек\n\nДобавьте занятый ник — бот сообщит, как только он освободится"
     limit = _trap_limit(user)
     text += f"\n\nЛимит: {len(traps)}/{limit}" if limit is not None else f"\n\nЛовушек: {len(traps)} (без лимита)"
     return text, inline.traps_kb(traps[:TRAPS_SHOWN]), "trap"
@@ -564,7 +565,7 @@ async def trap_input(message: Message, session: AsyncSession, user: User, state:
     name = normalize(message.text)
     if not any(net.name_re.fullmatch(name) for net in social_checker.ALL.values() if net.code != "ig"):
         await message.answer(
-            "⚠️ Некорректный юзернейм. Допустимы латиница, цифры и «_».",
+            "⚠️ Некорректный юзернейм. Допустимы латиница, цифры и «_»",
             reply_markup=inline.cancel_kb("s:trap"),
         )
         return
@@ -577,7 +578,7 @@ async def trap_input(message: Message, session: AsyncSession, user: User, state:
         await wait.edit_text(
             f"🪤 <b>@{name}</b>\n\n{format_statuses(name, statuses)}\n\n"
             "Ловить негде: там, где ник свободен, — занимайте его сейчас, а где он недоступен — "
-            "ловушка не поможет.",
+            "ловушка не поможет",
             reply_markup=inline.back_kb("s:trap", "🔙 К ловушкам"),
             disable_web_page_preview=True,
         )
@@ -639,7 +640,7 @@ async def trap_confirm(call: CallbackQuery, session: AsyncSession, user: User, s
             "Как только ник освободится — вы получите мгновенное уведомление 🚨"
         )
     else:
-        text = f"ℹ️ Ловушка на <b>@{name}</b> уже ловит ник во всех выбранных сетях."
+        text = f"ℹ️ Ловушка на <b>@{name}</b> уже ловит ник во всех выбранных сетях"
     await call.answer()
     await safe_edit(call, text, inline.back_kb("s:trap", "🪤 Мои ловушки"))
 

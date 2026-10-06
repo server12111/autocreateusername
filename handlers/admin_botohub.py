@@ -41,8 +41,8 @@ async def _screen(session: AsyncSession):
         "🤖 <b>ИНТЕГРАЦИЯ BOTOHUB</b>\n\n"
         f"Статус: {'🟢 включена' if enabled else '🔴 выключена'}\n"
         f"API-ключ: <code>{masked}</code>\n\n"
-        "Спонсоры BotoHub показываются на экране «+2 поиска за подписку» вместе с вашими каналами "
-        "и Tgrass.\n"
+        "Спонсоры BotoHub — за бонусные поиски (экран «+N поисков за подписку»), вместе с Tgrass. "
+        "Ваши каналы из «📢 Спонсоры» — отдельно, обязательная подписка\n"
         "Документация: https://botohub.me/integration"
     )
     return text, _kb(
@@ -87,7 +87,7 @@ async def bh_key_input(message: Message, session: AsyncSession, state: FSMContex
     except Exception:
         pass
     text, kb = await _screen(session)
-    await message.answer("✅ API-ключ сохранён.\n\n" + text, reply_markup=kb, disable_web_page_preview=True)
+    await message.answer("✅ API-ключ сохранён\n\n" + text, reply_markup=kb, disable_web_page_preview=True)
 
 
 @router.callback_query(F.data == "adm:bh:test")

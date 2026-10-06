@@ -79,10 +79,10 @@ def _accounts_screen(pool: MTProtoPool):
     else:
         text += (
             "Аккаунтов нет — бот работает в резервном режиме (t.me + Fragment), "
-            "это менее точно.\n\nДобавьте 2–3 запасных аккаунта."
+            "это менее точно\n\nДобавьте 2–3 запасных аккаунта"
         )
     if not settings.API_ID or not settings.API_HASH:
-        text += "\n\n⚠️ В .env не заданы API_ID / API_HASH — добавление аккаунтов недоступно."
+        text += "\n\n⚠️ В .env не заданы API_ID / API_HASH — добавление аккаунтов недоступно"
     kb.button(text="📱 Войти по номеру", callback_data="adm:acc:phone")
     kb.button(text="📎 Загрузить .session", callback_data="adm:acc:upload")
     kb.button(text="🔄 Обновить", callback_data="adm:acc")
@@ -135,8 +135,8 @@ async def acc_phone(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
     await safe_edit(
         call,
-        "📱 Отправьте номер телефона аккаунта в международном формате, например <code>+79991234567</code>.\n\n"
-        "💡 Используйте запасной аккаунт, не основной.",
+        "📱 Отправьте номер телефона аккаунта в международном формате, например <code>+79991234567</code>\n\n"
+        "💡 Используйте запасной аккаунт, не основной",
         _cancel_kb(),
     )
 
@@ -151,7 +151,7 @@ async def acc_phone_input(message: Message, pool: MTProtoPool, state: FSMContext
     file = f"{phone[1:]}.session"
     if pool.has(file):
         await state.clear()
-        await message.answer("ℹ️ Этот аккаунт уже есть в пуле.", reply_markup=_accounts_screen(pool)[1])
+        await message.answer("ℹ️ Этот аккаунт уже есть в пуле", reply_markup=_accounts_screen(pool)[1])
         return
     # Сессия в памяти: после входа pool.add_client сохранит её в БД, файл не нужен
     client = TelegramClient(StringSession(), settings.API_ID, settings.API_HASH)
@@ -250,7 +250,7 @@ async def _finish_login(message: Message, pool: MTProtoPool, state: FSMContext) 
     await pool.add_client(client, data["file"])
     await state.clear()
     await message.answer(
-        f"✅ Аккаунт <b>{html.escape(me.first_name or '')}</b> ({data['phone']}) добавлен в пул.",
+        f"✅ Аккаунт <b>{html.escape(me.first_name or '')}</b> ({data['phone']}) добавлен в пул",
         reply_markup=_accounts_screen(pool)[1],
     )
 
@@ -260,7 +260,7 @@ async def acc_code_input(message: Message, pool: MTProtoPool, state: FSMContext)
     data = _logins.get(message.from_user.id)
     if not data:
         await state.clear()
-        await message.answer("Сессия входа устарела, начните заново.")
+        await message.answer("Сессия входа устарела, начните заново")
         return
     code = re.sub(r"\D", "", message.text)
     try:
@@ -275,7 +275,7 @@ async def acc_code_input(message: Message, pool: MTProtoPool, state: FSMContext)
     except PhoneCodeExpiredError:
         await _drop_login(message.from_user.id)
         await state.clear()
-        await message.answer("⌛️ Код истёк (возможно, его отправили без пробелов). Начните заново.",
+        await message.answer("⌛️ Код истёк (возможно, его отправили без пробелов). Начните заново",
                              reply_markup=_accounts_screen(pool)[1])
         return
     except Exception as e:
@@ -294,7 +294,7 @@ async def acc_password_input(message: Message, pool: MTProtoPool, state: FSMCont
         pass
     if not data:
         await state.clear()
-        await message.answer("Сессия входа устарела, начните заново.")
+        await message.answer("Сессия входа устарела, начните заново")
         return
     try:
         await data["client"].sign_in(password=password)
@@ -319,8 +319,8 @@ async def acc_upload(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
     await safe_edit(
         call,
-        "📎 Отправьте файл <b>.session</b> (формат Telethon). Можно несколько по очереди.\n\n"
-        "Сессия должна быть создана с тем же API_ID/API_HASH или совместимым.",
+        "📎 Отправьте файл <b>.session</b> (формат Telethon). Можно несколько по очереди\n\n"
+        "Сессия должна быть создана с тем же API_ID/API_HASH или совместимым",
         _cancel_kb(),
     )
 
@@ -333,7 +333,7 @@ async def acc_upload_file(message: Message, bot: Bot, pool: MTProtoPool) -> None
         return
     name = re.sub(r"[^\w.-]", "_", name)
     if pool.has(name):
-        await message.answer(f"ℹ️ Аккаунт {name} уже в пуле.")
+        await message.answer(f"ℹ️ Аккаунт {name} уже в пуле")
         return
     # Временный файл в подпапке (импорт старых сессий её не сканирует): сессия переносится в БД,
     # сам файл после этого не нужен

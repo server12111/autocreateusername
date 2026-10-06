@@ -49,9 +49,9 @@ async def my_findings(call: CallbackQuery, session: AsyncSession, user: User) ->
         for r in rows:
             star = "⭐️ " if r.is_saved else ""
             text += f"{star}<b>@{r.username_query}</b> — {msk(r.created_at):%d.%m.%Y %H:%M}\n"
-        text += "\n<i>⭐️ — сохранённые вами. Ник мог быть занят после проверки.</i>"
+        text += "\n<i>⭐️ — сохранённые вами. Ник мог быть занят после проверки</i>"
     else:
-        text += "Здесь появятся свободные юзернеймы, найденные вами в поиске."
+        text += "Здесь появятся свободные юзернеймы, найденные вами в поиске"
     await call.answer()
     await safe_edit(call, text, inline.back_kb("menu:profile", "🔙 В профиль"))
 

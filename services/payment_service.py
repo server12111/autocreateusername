@@ -141,12 +141,12 @@ async def process_payment(session: AsyncSession, user: User, payment: Successful
     charge_id = payment.telegram_payment_charge_id
     user_id = user.tg_id  # после rollback объект user устаревает — читаем ID заранее
     if not await crud.stage_payment(session, user_id, payment.invoice_payload, payment.total_amount, charge_id):
-        return "ℹ️ Этот платёж уже был обработан."
+        return "ℹ️ Этот платёж уже был обработан"
     try:
         return await _grant(session, user, payment.invoice_payload, f"{payment.total_amount} ⭐️", charge_id)
     except IntegrityError:
         await session.rollback()
-        return "ℹ️ Этот платёж уже был обработан."
+        return "ℹ️ Этот платёж уже был обработан"
     except Exception:
         await session.rollback()
         log.exception("Не удалось начислить оплату Stars %s пользователю %s", charge_id, user_id)

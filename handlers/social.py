@@ -77,7 +77,7 @@ async def social_check_input(message: Message, user: User, state: FSMContext, ch
         return
     left = CHECK_COOLDOWN - (time.monotonic() - _last_check.get(user.tg_id, 0))
     if left > 0:
-        await message.answer(f"⏱ Подождите {math.ceil(left)} сек. и отправьте ник ещё раз.")
+        await message.answer(f"⏱ Подождите {math.ceil(left)} сек. и отправьте ник ещё раз")
         return
     await _social_report(message, user, state, checker, name)
 
@@ -88,7 +88,7 @@ async def social_of_found(call: CallbackQuery, user: User, state: FSMContext, ch
     name = call.data.split(":", 2)[2]
     left = CHECK_COOLDOWN - (time.monotonic() - _last_check.get(user.tg_id, 0))
     if left > 0:
-        await call.answer(f"⏱ Подождите {math.ceil(left)} сек.", show_alert=True)
+        await call.answer(f"⏱ Подождите {math.ceil(left)} сек", show_alert=True)
         return
     await call.answer()
     await _social_report(call.message, user, state, checker, name)
@@ -103,7 +103,7 @@ async def _social_report(target: Message, user: User, state: FSMContext, checker
     text = f"🌐 <b>@{name}</b>\n\n{format_statuses(name, statuses)}"
     free = [social_checker.ALL[c].title for c, (st, _) in statuses.items() if st == "free"]
     if free:
-        text += f"\n\n⚡️ Свободен в: <b>{', '.join(free)}</b> — занимайте, пока не забрали."
+        text += f"\n\n⚡️ Свободен в: <b>{', '.join(free)}</b> — занимайте, пока не забрали"
 
     # Данные для ловушки: если пользователь захочет ловить ник там, где он занят
     await state.set_state(None)
@@ -141,7 +141,7 @@ def _find_text(selected: list[str]) -> str:
     return (
         "🎯 <b>НИК, СВОБОДНЫЙ ВЕЗДЕ</b>\n\n"
         "Отметьте, где ник должен быть свободен — бот найдёт красивый ник из 6 букв, "
-        "свободный во всех отмеченных сетях.\n\n"
+        "свободный во всех отмеченных сетях\n\n"
         f"Сейчас: {where}"
     )
 
@@ -231,7 +231,7 @@ async def _find_everywhere(
         kb.adjust(1)
         await msg.edit_text(
             f"😔 За полторы минуты не нашлось ника, свободного сразу в: {titles}.\n\n"
-            "Попробуйте ещё раз или снимите галочку с какой-нибудь сети.",
+            "Попробуйте ещё раз или снимите галочку с какой-нибудь сети",
             reply_markup=kb.as_markup(),
         )
         return

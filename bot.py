@@ -94,7 +94,7 @@ async def premium_reminders(bot: Bot, session) -> None:
         await crud.mark_premium_reminded(session, user, pct)
         hours = max(1, round((user.premium_until - utcnow()).total_seconds() / 3600))
         prices, active = plan_prices(user)
-        text = f"⏳ <b>Ваш Premium закончится через {hours} ч.</b> ({msk(user.premium_until):%d.%m %H:%M} МСК)\n\n"
+        text = f"⏳ <b>Ваш Premium закончится через {hours} ч</b> ({msk(user.premium_until):%d.%m %H:%M} МСК)\n\n"
         if active:
             text += (
                 f"🎁 Продлите сейчас со скидкой <b>{active}%</b> — она действует до "

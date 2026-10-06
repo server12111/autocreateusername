@@ -111,7 +111,7 @@ async def notify_referrer(bot: Bot, session: AsyncSession, user: User) -> None:
         f"Всего активных приглашённых: <b>{referrer.referrals_count}</b>"
     )
     if reward:
-        text += f"\n\n🎁 Достигнут новый уровень! Начислено <b>+{reward} дн. Premium</b>."
+        text += f"\n\n🎁 Достигнут новый уровень! Начислено <b>+{reward} дн. Premium</b>"
     try:
         await bot.send_message(referrer.tg_id, text)
     except Exception:
