@@ -1,4 +1,4 @@
-# UserSearch Bot — поиск, проверка и снайпинг юзернеймов Telegram
+# NameHunter (UserSearch Bot) — поиск, проверка и снайпинг юзернеймов Telegram
 
 aiogram 3 · SQLAlchemy 2 (async) · Telethon · aiohttp · APScheduler · Telegram Stars
 

@@ -5,7 +5,13 @@ import time
 
 from telethon import TelegramClient
 from telethon.errors import (
+    AuthKeyDuplicatedError,
+    AuthKeyUnregisteredError,
     FloodWaitError,
+    SessionExpiredError,
+    SessionRevokedError,
+    UserDeactivatedBanError,
+    UserDeactivatedError,
     UsernameInvalidError,
     UsernameOccupiedError,
     UsernameNotOccupiedError,
@@ -19,6 +25,16 @@ from database import crud
 from database.base import session_maker
 
 log = logging.getLogger(__name__)
+
+# Ошибки, после которых сессия аккаунта мертва навсегда (в отличие от сетевых сбоев и FloodWait)
+DEAD_SESSION_ERRORS = (
+    AuthKeyUnregisteredError,
+    AuthKeyDuplicatedError,
+    SessionRevokedError,
+    SessionExpiredError,
+    UserDeactivatedError,
+    UserDeactivatedBanError,
+)
 
 
 class _Worker:
@@ -141,8 +157,10 @@ class MTProtoPool:
                     self.workers.append(_Worker(name, client))
                     log.info("MTProto: аккаунт %s подключён", name)
                 else:
-                    log.warning("MTProto: аккаунт %s больше не авторизован — удалите его в админке", name)
+                    # Сессию отозвали — в админке такой аккаунт не виден, поэтому удаляем сами
+                    log.warning("MTProto: аккаунт %s больше не авторизован — удалён из базы", name)
                     await client.disconnect()
+                    await self.remove(name)
             except Exception as e:
                 log.warning("MTProto: не удалось подключить %s: %s", name, e)
         log.info("MTProto-пул: %d аккаунтов", len(self.workers))
@@ -271,6 +289,11 @@ class MTProtoPool:
             except FloodWaitError as e:
                 worker.busy_until = time.time() + e.seconds + 1
                 log.info("MTProto: %s во FloodWait на %d сек", worker.name, e.seconds)
+                continue
+            except DEAD_SESSION_ERRORS as e:
+                # Аккаунт разлогинен, удалён или забанен — больше он не заработает
+                log.warning("MTProto: аккаунт %s отключён (%s) — удалён из пула и базы", worker.name, type(e).__name__)
+                await self.remove(worker.name)
                 continue
             except Exception as e:
                 log.warning("MTProto: ошибка %s на %s: %s", type(e).__name__, worker.name, e)

@@ -303,7 +303,7 @@ async def adm_sp_link(message: Message, bot: Bot, session: AsyncSession, state: 
             link = f"https://t.me/{data['sp_public']}"
         else:
             try:
-                link = (await bot.create_chat_invite_link(data["sp_id"], name="UserSearch OP")).invite_link
+                link = (await bot.create_chat_invite_link(data["sp_id"], name="NameHunter OP")).invite_link
             except Exception as e:
                 await message.answer(f"❌ Не удалось создать ссылку: {html.escape(str(e))}\nОтправьте ссылку вручную:")
                 return

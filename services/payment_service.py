@@ -20,7 +20,7 @@ def describe(payload: str) -> tuple[str, str, int] | None:
     """payload -> (заголовок, описание, цена в Stars)."""
     if payload in PREMIUM_PLANS:
         days, price = PREMIUM_PLANS[payload]
-        return f"Premium на {days} дн.", f"UserSearch Premium: безлимитный поиск на {days} дн.", price
+        return f"Premium на {days} дн.", f"NameHunter Premium: безлимитный поиск на {days} дн.", price
     if payload in SEARCH_PACKS:
         count, price = SEARCH_PACKS[payload]
         return f"{count} поисков", f"Пакет из {count} дополнительных поисков юзернеймов", price
