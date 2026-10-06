@@ -21,6 +21,7 @@ from database.base import session_maker
 from database.models import User, msk
 from handlers.sections import safe_edit, send_screen
 from keyboards.inline import sponsor_bonus_kb
+from services import social_checker
 from services.botohub_service import BotohubService
 from services.fragment_parser import FragmentParser
 from services.free_pool import FreeNamePool
@@ -157,15 +158,22 @@ async def adm_health(call: CallbackQuery, checker: UsernameChecker, pool: MTProt
 
     frag_status = frag.get("status") if isinstance(frag, dict) else frag
     stock = await name_pool.stock()
+    # Соцсети: заведомо занятые ники должны вернуться как «taken»
+    social_lines = ""
+    for code, probe in (("yt", "youtube"), ("x", "elonmusk"), ("tt", "tiktok")):
+        st, t = await timed(social_checker.check(code, probe, use_cache=False))
+        social_lines += f"{mark(st == 'taken')} {social_checker.ALL[code].title}: {html.escape(str(st))} — {t:.1f} сек\n"
     text = (
         "🩺 <b>ПРОВЕРКА СЕРВИСОВ</b> (с этого сервера)\n\n"
         f"{mark(tme is True)} t.me: {'отвечает' if tme is True else html.escape(str(tme))} — {t1:.1f} сек\n"
         f"{mark(frag_status == 'taken')} Fragment: {html.escape(str(frag_status))} — {t2:.1f} сек\n"
         f"{mark(res == 'occupied')} Проверка через Telegram: {html.escape(str(res))} — {t3:.1f} сек\n"
+        f"{social_lines}"
         f"🤖 Аккаунтов в пуле: {pool.alive}/{pool.size}\n"
         f"📦 Запас готовых ников: 5 букв — {stock.get(5, 0)}, 6 букв — {stock.get(6, 0)}\n\n"
-        "<i>Норма: все 🟢 и до 1–2 сек. Если t.me или Fragment 🔴 или по 5 сек — сервер их не видит "
-        "(часто так на серверах в РФ), тогда нужен прокси (HTTP_PROXY в .env) или сервер в другой стране.</i>"
+        "<i>Норма: все 🟢 и до 1–2 сек. Если сервис 🔴 или по 5+ сек — сервер его не видит "
+        "(часто так на серверах в РФ: X и YouTube там блокируются), тогда нужен прокси "
+        "(HTTP_PROXY в .env) или сервер в другой стране.</i>"
     )
     await call.message.answer(text, reply_markup=_kb(("🔄 Ещё раз", "adm:health"), ("🔙 К статистике", "adm:stats")))
 

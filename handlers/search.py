@@ -15,6 +15,8 @@ from database.models import User, msk, utcnow
 from handlers.sections import build_search, cooldown_left, safe_edit
 from keyboards import inline
 from services.free_pool import FreeNamePool, activity
+from services import social_checker
+from services.nickname_sniper import trap_networks
 from services.op_manager import check_sponsors
 from services.username_checker import (
     STATUS_TEXT,
@@ -491,7 +493,8 @@ async def _traps_screen(session: AsyncSession, user: User):
         text += "Активные ловушки:\n"
         for t in traps[:TRAPS_SHOWN]:
             checked = f"{msk(t.last_checked_at):%d.%m %H:%M} МСК" if t.last_checked_at else "ожидает"
-            text += f"• <b>@{t.target_username}</b> — последняя проверка: {checked}\n"
+            nets = "".join(social_checker.icon(c) for c in trap_networks(t))
+            text += f"• <b>@{t.target_username}</b> {nets} — последняя проверка: {checked}\n"
         if len(traps) > TRAPS_SHOWN:
             text += f"…и ещё {len(traps) - TRAPS_SHOWN} — они тоже работают.\n"
         text += "\nНажмите на ник, чтобы удалить ловушку."
@@ -525,39 +528,111 @@ async def trap_add(call: CallbackQuery, session: AsyncSession, user: User, state
 @router.message(SearchStates.trap, F.text)
 async def trap_input(message: Message, session: AsyncSession, user: User, state: FSMContext, checker: UsernameChecker) -> None:
     name = normalize(message.text)
-    if not is_valid_username(name):
+    if not any(net.name_re.fullmatch(name) for net in social_checker.ALL.values() if net.code != "ig"):
         await message.answer(
-            "⚠️ Некорректный юзернейм. Допустимы латиница, цифры и «_», длина 5–32, начинается с буквы.",
+            "⚠️ Некорректный юзернейм. Допустимы латиница, цифры и «_».",
             reply_markup=inline.cancel_kb("s:trap"),
         )
         return
-    wait = await message.answer(f"⏳ Проверяю @{name}…")
-    res = await checker.check(name)
-    if res.is_free:
+    wait = await message.answer(f"⏳ Проверяю @{name} в Telegram и соцсетях…")
+    statuses = await network_statuses(checker, name)
+    # Ловить имеет смысл там, где ник сейчас занят (или сеть не ответила)
+    catchable = [code for code, (st, _) in statuses.items() if st in ("taken", "unknown")]
+    if not catchable:
         await state.set_state(None)
-        kb = InlineKeyboardBuilder()
-        kb.button(text="🔙 К ловушкам", callback_data="s:trap")
-        kb.adjust(1)
-        await wait.edit_text(f"🎉 <b>@{name}</b> свободен прямо сейчас! Ловушка не нужна — занимайте скорее.", reply_markup=kb.as_markup())
+        await wait.edit_text(
+            f"🪤 <b>@{name}</b>\n\n{format_statuses(name, statuses)}\n\n"
+            "Ловить негде: там, где ник свободен, — занимайте его сейчас, а где он недоступен — "
+            "ловушка не поможет.",
+            reply_markup=inline.back_kb("s:trap", "🔙 К ловушкам"),
+            disable_web_page_preview=True,
+        )
         return
-    if res.status == "invalid":
-        await wait.edit_text("⛔️ Этот юзернейм недопустим в Telegram. Отправьте другой:", reply_markup=inline.cancel_kb("s:trap"))
-        return
-
-    trap = await crud.add_trap(session, user.tg_id, name)
+    selected = [catchable[0]] if "tg" not in catchable else ["tg"]
     await state.set_state(None)
-    status = STATUS_TEXT.get(res.status, res.status)
-    if res.fragment_price:
-        status += f" ({res.fragment_price} TON)"
+    await state.update_data(trap_name=name, trap_catchable=catchable, trap_selected=selected,
+                            trap_text=format_statuses(name, statuses))
+    await wait.edit_text(_trap_select_text(name, format_statuses(name, statuses)),
+                         reply_markup=inline.trap_networks_kb(catchable, selected), disable_web_page_preview=True)
+
+
+def _trap_select_text(name: str, statuses_text: str) -> str:
+    return (
+        f"🪤 <b>ЛОВУШКА НА @{name}</b>\n\n{statuses_text}\n\n"
+        "Отметьте, где ловить ник — бот сообщит, как только он освободится в выбранных сетях:"
+    )
+
+
+@router.callback_query(F.data.startswith("trap:net:"))
+async def trap_toggle_network(call: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    code = call.data.split(":", 2)[2]
+    if not data.get("trap_name") or code not in data.get("trap_catchable", []):
+        await call.answer("Начните заново: «➕ Добавить ловушку»", show_alert=True)
+        return
+    selected = list(data.get("trap_selected", []))
+    selected = [c for c in selected if c != code] if code in selected else selected + [code]
+    await state.update_data(trap_selected=selected)
+    await call.answer()
+    await safe_edit(call, _trap_select_text(data["trap_name"], data["trap_text"]),
+                    inline.trap_networks_kb(data["trap_catchable"], selected))
+
+
+@router.callback_query(F.data == "trap:ok")
+async def trap_confirm(call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    if not await _premium_gate(call, user):
+        return
+    data = await state.get_data()
+    name, selected = data.get("trap_name"), data.get("trap_selected") or []
+    if not name:
+        await call.answer("Начните заново: «➕ Добавить ловушку»", show_alert=True)
+        return
+    if not selected:
+        await call.answer("Отметьте хотя бы одну сеть", show_alert=True)
+        return
+    if await _trap_limit_reached(call, session, user):
+        return
+    order = [c for c in social_checker.ALL if c in selected]
+    trap = await crud.add_trap(session, user.tg_id, name, ",".join(order))
+    await state.update_data(trap_name=None)
+    where = ", ".join(f"{social_checker.icon(c)} {social_checker.ALL[c].title}" for c in order)
     if trap:
         text = (
             f"✅ Ловушка на <b>@{name}</b> установлена!\n\n"
-            f"Текущий статус: {status}\n\n"
+            f"Ловим в: {where}\n\n"
             "Как только ник освободится — вы получите мгновенное уведомление 🚨"
         )
     else:
-        text = f"ℹ️ Ловушка на <b>@{name}</b> уже активна."
-    await wait.edit_text(text, reply_markup=inline.back_kb("s:trap", "🪤 Мои ловушки"))
+        text = f"ℹ️ Ловушка на <b>@{name}</b> уже активна. Чтобы поменять сети — удалите её и поставьте заново."
+    await call.answer()
+    await safe_edit(call, text, inline.back_kb("s:trap", "🪤 Мои ловушки"))
+
+
+async def network_statuses(checker: UsernameChecker, name: str) -> dict[str, tuple[str, str]]:
+    """Статус ника в Telegram и соцсетях: {код: (статус, подпись)} — статусы как в social_checker."""
+    async def telegram() -> tuple[str, str]:
+        if not is_valid_username(name):
+            return "invalid", social_checker.STATUS_MARK["invalid"]
+        res = await checker.check(name)
+        status = {"free": "free", "unknown": "unknown", "invalid": "invalid"}.get(res.status, "taken")
+        label = STATUS_TEXT.get(res.status, res.status)
+        if res.fragment_price:
+            label += f" ({res.fragment_price} TON)"
+        return status, label
+
+    tg, social = await asyncio.gather(telegram(), social_checker.check_all(name))
+    result = {"tg": tg}
+    for code, st in social.items():
+        result[code] = (st, social_checker.STATUS_MARK[st])
+    return result
+
+
+def format_statuses(name: str, statuses: dict[str, tuple[str, str]]) -> str:
+    lines = [f"{social_checker.icon(code)} <b>{social_checker.ALL[code].title}</b> — {label}"
+             for code, (_, label) in statuses.items()]
+    ig = social_checker.INSTAGRAM
+    lines.append(f'{social_checker.icon("ig")} <b>Instagram</b> — <a href="{ig.url.format(name=name)}">проверить вручную</a>')
+    return "\n".join(lines)
 
 
 @router.callback_query(F.data.startswith("trap:del:"))

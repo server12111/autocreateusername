@@ -14,7 +14,19 @@ from config import settings
 from database import crud
 from database.base import engine, init_db, session_maker
 from database.models import msk, utcnow
-from handlers import admin, admin_accounts, admin_botohub, admin_style, nickname_battle, profile, referrals, search, shop, start
+from handlers import (
+    admin,
+    admin_accounts,
+    admin_botohub,
+    admin_style,
+    nickname_battle,
+    profile,
+    referrals,
+    search,
+    shop,
+    social,
+    start,
+)
 from keyboards import inline
 from middlewares.captcha_mw import CaptchaMiddleware
 from middlewares.db_middleware import DbSessionMiddleware
@@ -125,6 +137,7 @@ async def main() -> None:
         start.router,
         shop.payments_router,
         search.router,
+        social.router,
         shop.router,
         profile.router,
         referrals.router,

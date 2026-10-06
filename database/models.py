@@ -67,6 +67,9 @@ class NicknameTrap(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.tg_id"), index=True)
     target_username: Mapped[str] = mapped_column(String(64), index=True)
+    # Где ловим ник: коды сетей через запятую (tg, yt, x, tt); freed — где уже освободился и мы сообщили
+    networks: Mapped[str] = mapped_column(String(32), default="tg", server_default="tg")
+    freed: Mapped[str] = mapped_column(String(32), default="", server_default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

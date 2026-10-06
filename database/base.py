@@ -47,7 +47,10 @@ def _add_missing_columns(conn) -> None:
                 continue
             ddl = f'ALTER TABLE {table.name} ADD COLUMN "{col.name}" {col.type.compile(conn.dialect)}'
             if col.server_default is not None:
-                ddl += f" DEFAULT {col.server_default.arg}"
+                arg = str(col.server_default.arg)
+                # Числа как есть, строки — в кавычках (иначе DEFAULT tg / DEFAULT  ломают SQL)
+                default = arg if arg.lstrip("-").isdigit() else "'" + arg.replace("'", "''") + "'"
+                ddl += f" DEFAULT {default}"
             conn.execute(text(ddl))
             log.info("БД: добавлена колонка %s.%s", table.name, col.name)
 

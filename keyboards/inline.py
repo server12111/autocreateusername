@@ -4,6 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import PREMIUM_PLANS, SEARCH_PACKS
+from services import social_checker
 from services.crypto_pay import PROVIDERS, provider_name
 
 
@@ -22,6 +23,7 @@ def captcha_kb(options: list[int]) -> InlineKeyboardMarkup:
 def main_menu_kb(support_url: str, battle_enabled: bool = True) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="🔍 Поиск", callback_data="menu:search")
+    kb.button(text="🌐 Ник в соцсетях", callback_data="menu:social")
     kb.button(text="🛒 Магазин", callback_data="menu:shop")
     kb.button(text="👤 Профиль", callback_data="menu:profile")
     kb.button(text="👥 Рефералы", callback_data="menu:ref")
@@ -101,6 +103,24 @@ def premium_only_kb() -> InlineKeyboardMarkup:
 def cancel_kb(back: str = "menu:search") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="❌ Отмена", callback_data=back)
+    return kb.as_markup()
+
+
+def network_button(code: str, text: str, **kwargs) -> InlineKeyboardButton:
+    """Кнопка с премиум-логотипом соцсети (обычный эмодзи в начале — запасной вариант, см. ui_style)."""
+    net = social_checker.ALL[code]
+    return InlineKeyboardButton(text=f"{net.char} {text}", icon_custom_emoji_id=net.emoji_id, **kwargs)
+
+
+def trap_networks_kb(catchable: list[str], selected: list[str]) -> InlineKeyboardMarkup:
+    """Галочки «где ловить ник» для ловушки."""
+    kb = InlineKeyboardBuilder()
+    for code in catchable:
+        mark = "✅" if code in selected else "⬜️"
+        kb.add(network_button(code, f"{social_checker.ALL[code].title} {mark}", callback_data=f"trap:net:{code}"))
+    kb.button(text="🪤 Поставить ловушку", callback_data="trap:ok")
+    kb.button(text="❌ Отмена", callback_data="s:trap")
+    kb.adjust(1)
     return kb.as_markup()
 
 

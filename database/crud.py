@@ -301,7 +301,7 @@ async def recently_checked_by_user(session: AsyncSession, user_id: int, since_ho
 # ───────────────────────── traps ─────────────────────────
 
 
-async def add_trap(session: AsyncSession, user_id: int, username: str) -> NicknameTrap | None:
+async def add_trap(session: AsyncSession, user_id: int, username: str, networks: str = "tg") -> NicknameTrap | None:
     exists = await session.scalar(
         select(NicknameTrap).where(
             NicknameTrap.user_id == user_id,
@@ -311,7 +311,7 @@ async def add_trap(session: AsyncSession, user_id: int, username: str) -> Nickna
     )
     if exists:
         return None
-    trap = NicknameTrap(user_id=user_id, target_username=username)
+    trap = NicknameTrap(user_id=user_id, target_username=username, networks=networks)
     session.add(trap)
     await session.commit()
     return trap
