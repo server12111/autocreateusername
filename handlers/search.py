@@ -289,7 +289,8 @@ async def _premium_gate(call: CallbackQuery, user: User) -> bool:
 async def search_5(
     call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker, name_pool: FreeNamePool
 ) -> None:
-    if await _premium_gate(call, user):
+    # Самый первый поиск новичка можно сделать и в режиме 5 букв (тратит бесплатный поиск)
+    if crud.first_search_free(user) or await _premium_gate(call, user):
         await run_search(call, session, user, checker, "5", lambda: generate_nice(5),
                          "Ищу редкий 5-буквенный юзернейм", name_pool, 5)
 

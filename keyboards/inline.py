@@ -54,10 +54,11 @@ def sponsor_bonus_kb(channels) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def search_kb(sponsor_bonus: int = 0) -> InlineKeyboardMarkup:
-    """sponsor_bonus > 0 — показать кнопку бонуса за подписку на спонсоров."""
+def search_kb(sponsor_bonus: int = 0, five_free: bool = False) -> InlineKeyboardMarkup:
+    """sponsor_bonus > 0 — показать кнопку бонуса за подписку на спонсоров;
+    five_free — новичку первый поиск 5 букв бесплатно."""
     kb = InlineKeyboardBuilder()
-    kb.button(text="💎 5 букв (Редкие)", callback_data="s:5")
+    kb.button(text="💎 5 букв — 1-й раз бесплатно" if five_free else "💎 5 букв (Редкие)", callback_data="s:5")
     kb.button(text="🔤 6 букв", callback_data="s:6")
     kb.button(text="✍️ Поиск по слову", callback_data="s:word")
     kb.button(text="🎯 Поиск по маске", callback_data="s:mask")

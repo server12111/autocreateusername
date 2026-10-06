@@ -129,6 +129,12 @@ def premium_active(user: User) -> bool:
     return bool(user.is_premium and user.premium_until and user.premium_until > utcnow())
 
 
+def first_search_free(user: User) -> bool:
+    """Самый первый поиск новичка можно сделать и в Premium-режиме 5 букв (тратит бесплатный поиск):
+    без Premium, ещё ничего не нашёл и есть бесплатный поиск."""
+    return not premium_active(user) and user.total_searches_done == 0 and user.free_searches_left > 0
+
+
 async def add_premium_days(session: AsyncSession, user: User, days: int) -> datetime:
     now = utcnow()
     base = user.premium_until if premium_active(user) else now
