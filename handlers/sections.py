@@ -123,13 +123,13 @@ async def build_ref(session: AsyncSession, user: User, bot: Bot) -> Screen:
     for (need, _), name in zip(REF_TIERS, tier_names):
         if count >= need:
             current = name
-    marks = ["✅" if count >= need else "" for need, _ in REF_TIERS]
+    marks = [" ✅" if count >= need else "" for need, _ in REF_TIERS]
     nxt = next((need for need, _ in REF_TIERS if count < need), None)
     if nxt:
         filled = min(10, round(count / nxt * 10))
-        progress = f"Прогресс до следующей награды:\n[{'🟩' * filled}{'⬜️' * (10 - filled)}] {count}/{nxt} чел."
+        progress = f"{'🟩' * filled}{'⬜️' * (10 - filled)} {count}/{nxt}"
     else:
-        progress = "🏆 Все уровни наград получены! Спасибо, что приглашаете друзей."
+        progress = "🏆 Все награды получены!"
     text = REF_TEXT.format(
         link=link, ref_count=count, current_tier=current,
         t1=marks[0], t2=marks[1], t3=marks[2], t4=marks[3], progress=progress,

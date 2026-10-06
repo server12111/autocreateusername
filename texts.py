@@ -13,9 +13,6 @@ MAIN_MENU_TEXT = (
     "👋 <b>Приветствуем в NameHunter!</b>\n\n"
     "⚡️ Мы — продвинутый сервис для поиска, мониторинга и мгновенного подбора свободных юзернеймов "
     "в Telegram и на Fragment.\n\n"
-    "🔍 Каждый найденный юзернейм проходит строгую <b>двойную проверку</b>:\n"
-    "• <b>Telegram</b> — проверяется на отсутствие привязки к профилям, каналам и ботам\n"
-    "• <b>Fragment</b> — проверяется на отсутствие торгов и аукционов\n\n"
     "Выберите нужное действие в меню ниже 👇"
 )
 
@@ -42,10 +39,6 @@ FOUND_TEXT = (
 
 def _tree(lines: list[str]) -> str:
     return "\n".join(("└ " if i == len(lines) - 1 else "├ ") + line for i, line in enumerate(lines))
-
-
-def _friends(n: int) -> str:
-    return f"{n} {plural(n, 'друг', 'друга', 'друзей')}"
 
 
 # Списки цен и наград собираются из config.py — менять цены нужно только там
@@ -105,20 +98,14 @@ PROFILE_TEXT = (
 )
 
 REF_TEXT = (
-    "👥 <b>РЕФЕРАЛЬНАЯ СИСТЕМА</b>\n"
-    "\n"
-    "Приглашайте друзей и получайте дни Premium бесплатно!\n\n"
-    "🔗 Ваша персональная ссылка:\n"
-    "<code>{link}</code>\n\n"
-    "📊 Ваша статистика:\n"
-    "├ Приглашено активных друзей: <b>{ref_count}</b>\n"
-    "└ Ваш текущий уровень: <b>{current_tier}</b>\n\n"
-    "🎁 Уровни вознаграждений:\n"
-    + _tree([f"{_friends(need)} — +{plan_period(days)} Premium {{t{i}}}"
-             for i, (need, days) in enumerate(REF_TIERS, 1)])
-    + "\n\n"
+    "👥 <b>ДРУЗЬЯ</b>\n\n"
+    "🔗 <code>{link}</code>\n\n"
+    "Приглашено: <b>{ref_count}</b> · Уровень: <b>{current_tier}</b>\n"
     "{progress}\n\n"
-    "<i>Друг засчитывается после прохождения капчи и подписки на каналы.</i>"
+    "<blockquote>🎁 <b>Награды:</b>\n"
+    + "\n".join(f"{need} → +{plan_period(days)}{{t{i}}}" for i, (need, days) in enumerate(REF_TIERS, 1))
+    + "</blockquote>\n\n"
+    "<i>Друг засчитывается после капчи и подписки на каналы.</i>"
 )
 
 SHARE_TEXT = (
