@@ -260,13 +260,16 @@ async def credit_referral(session: AsyncSession, user: User) -> tuple[User, int 
     await session.execute(
         update(User).where(User.tg_id == user.referrer_id).values(referrals_count=User.referrals_count + 1)
     )
+    # Номер этого друга читаем ДО commit: транзакция держит запись, параллельный друг не вклинится,
+    # и порог награды увидит ровно один из них (после commit оба могли прочитать одно и то же число)
+    count = await session.scalar(select(User.referrals_count).where(User.tg_id == user.referrer_id))
     await session.commit()
     await session.refresh(user)
     referrer = await get_user(session, user.referrer_id)
     if not referrer:
         return None
     await session.refresh(referrer)
-    reward = next((days for need, days in REF_TIERS if need == referrer.referrals_count), None)
+    reward = next((days for need, days in REF_TIERS if need == count), None)
     if reward:
         await add_premium_days(session, referrer, reward)
     return referrer, reward

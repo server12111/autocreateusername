@@ -150,7 +150,10 @@ async def check_op(call: CallbackQuery, bot: Bot, session: AsyncSession, user: U
         return
     bonus = await crud.claim_sponsor_bonus(session, user)
     await notify_referrer(bot, session, user)
-    await call.answer(f"✅ Подписка подтверждена! Начислено +{bonus} поиска", show_alert=True)
+    if not bonus:  # параллельное нажатие уже получило бонус
+        await call.answer("Бонус за подписку уже получен 👌", show_alert=True)
+    else:
+        await call.answer(f"✅ Подписка подтверждена! Начислено +{bonus} поиска", show_alert=True)
     await safe_edit(call, *await build_search(session, user, bot))
 
 

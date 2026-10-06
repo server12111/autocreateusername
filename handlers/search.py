@@ -4,6 +4,7 @@ import time
 from datetime import timedelta
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
@@ -207,7 +208,12 @@ async def _guarded(event: CallbackQuery | Message, user: User, search) -> None:
 async def _wait_message(event: CallbackQuery | Message, wait_text: str) -> Message:
     """Показывает «ищу…» в сообщении с кнопкой или новым сообщением."""
     if isinstance(event, CallbackQuery):
-        await event.answer()
+        try:
+            await event.answer()
+        except TelegramBadRequest:
+            # Нажатие, накопившееся пока бот был выключен: Telegram уже не принимает ответ («query is
+            # too old»), но поиск к этому моменту списан — продолжаем, а не обрываем его без результата
+            pass
     if isinstance(event, CallbackQuery) and isinstance(event.message, Message):
         await safe_edit(event, wait_text)
         return event.message
