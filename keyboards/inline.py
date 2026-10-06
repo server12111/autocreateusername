@@ -48,12 +48,27 @@ def search_kb(sponsor_bonus: int = 0) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="💎 5 букв (Редкие)", callback_data="s:5")
     kb.button(text="🔤 6 букв", callback_data="s:6")
-    kb.button(text="🎯 Поиск по фильтру/маске", callback_data="s:mask")
+    kb.button(text="✍️ Поиск по слову", callback_data="s:word")
+    kb.button(text="🎯 Поиск по маске", callback_data="s:mask")
     kb.button(text="🪤 Ловушка на ник (Снайпер)", callback_data="s:trap")
     if sponsor_bonus:
         kb.button(text=f"🎁 +{sponsor_bonus} поиска за подписку", callback_data="s:bonus")
     _back(kb)
-    kb.adjust(2, 1, 1, 1, 1)
+    kb.adjust(2, 2, 1, 1, 1)
+    return kb.as_markup()
+
+
+def word_found_kb(word: str, has_more: bool, can_trap: bool, can_save: bool = True) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    if has_more:
+        kb.button(text="🔄 Ещё варианты", callback_data="s:wmore")
+    if can_save:
+        kb.button(text="📁 Сохранить все", callback_data="s:wsave")
+    if can_trap:
+        kb.button(text=f"🪤 Ловушка на @{word}", callback_data="s:wtrap")
+    kb.button(text="✍️ Другое слово", callback_data="s:word")
+    _back(kb, "menu:search", "🔙 Назад в поиск")
+    kb.adjust(2, 1, 1, 1)
     return kb.as_markup()
 
 

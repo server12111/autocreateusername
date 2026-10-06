@@ -13,6 +13,8 @@ from services.tgrass_service import TgrassService
 
 log = logging.getLogger(__name__)
 
+MAX_SHOWN = 6  # сколько спонсоров показывать за раз; остальные появятся после подписки на эти
+
 
 @dataclass
 class OpChannel:
@@ -47,7 +49,7 @@ async def check_sponsors(bot: Bot, session: AsyncSession, user: User) -> Sponsor
             state.missing.append(OpChannel(ch.title, ch.invite_link))
 
     # Спонсоры Tgrass
-    if await crud.get_setting(session, "tgrass_enabled") == "1":
+    if len(state.missing) < MAX_SHOWN and await crud.get_setting(session, "tgrass_enabled") == "1":
         key = await crud.get_setting(session, "tgrass_api_key")
         if key:
             offers, has = await TgrassService(key).get_offers(
@@ -58,13 +60,16 @@ async def check_sponsors(bot: Bot, session: AsyncSession, user: User) -> Sponsor
                 state.missing.append(OpChannel(o.get("name") or "Канал спонсора", o["link"]))
 
     # Спонсоры BotoHub (названий не отдаёт — нумеруем, чтобы кнопки различались)
-    if await crud.get_setting(session, "botohub_enabled") == "1":
+    if len(state.missing) < MAX_SHOWN and await crud.get_setting(session, "botohub_enabled") == "1":
         key = await crud.get_setting(session, "botohub_api_key")
         if key:
             links, has = await BotohubService(key).get_unsubscribed(user.tg_id)
             state.available |= has
             for url in links:
                 state.missing.append(OpChannel(f"Спонсор #{len(state.missing) + 1}", url))
+    # Не больше MAX_SHOWN за раз. Бонус всё равно дают только после подписки на всех:
+    # пока список не пуст, all_done ложно, а следующие спонсоры покажутся при новой проверке
+    state.missing = state.missing[:MAX_SHOWN]
     return state
 
 

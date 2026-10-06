@@ -103,6 +103,61 @@ def generate_from_mask(mask: str) -> str:
             return name
 
 
+# ───────────────────────── поиск по слову ─────────────────────────
+
+WORD_RE = re.compile(r"[a-z][a-z0-9]{2,19}")
+_SHORT_SUFFIXES = ["x", "ly", "io", "hq", "go"]
+_TOP_PREFIXES = ["get", "the", "my", "its", "real"]
+_MORE_SUFFIXES = ["app", "hub", "lab", "pro", "er", "ify", "ex", "on", "zz", "ix", "tv", "pay"]
+_MORE_PREFIXES = ["im", "iam", "hey", "go", "use", "join", "x", "mr", "top", "only"]
+_LEET = {"o": "0", "i": "1", "e": "3", "a": "4"}
+
+
+def validate_word(word: str) -> str | None:
+    """Текст ошибки или None. Слово: 3–20 символов, латиница и цифры, начинается с буквы."""
+    if re.search(r"[а-яё]", word, re.I):
+        return "Пишите слово латиницей: например, <code>crypto</code>, <code>alex</code>, <code>music</code>."
+    if not WORD_RE.fullmatch(word):
+        return "Слово должно быть из 3–20 латинских букв и цифр и начинаться с буквы."
+    return None
+
+
+def word_variants(word: str) -> list[str]:
+    """Варианты ника на основе слова — от самых красивых к менее красивым. Без самого слова."""
+    w = word.lower()
+    out: list[str] = []
+
+    def leet(s: str) -> list[str]:
+        # Заменяем одну букву на цифру, начиная с последней подходящей (crypt0 красивее cr1pto)
+        res = []
+        for i in range(len(s) - 1, 0, -1):
+            if s[i] in _LEET:
+                res.append(s[:i] + _LEET[s[i]] + s[i + 1 :])
+        return res
+
+    out += [w + s for s in _SHORT_SUFFIXES]
+    out += [p + w for p in _TOP_PREFIXES]
+    out += leet(w)
+    out.append(w + w[-1])  # cryptoo
+    out += [w + s for s in _MORE_SUFFIXES]
+    out += [p + w for p in _MORE_PREFIXES]
+    out += [v + "x" for v in leet(w)[:2]]
+    vowels = [i for i, ch in enumerate(w) if ch in VOWELS and 0 < i]
+    if vowels:
+        i = vowels[-1]
+        out.append(w[:i] + w[i + 1 :])  # без последней гласной: crypto -> crypt
+    out += [f"{w}_{s}" for s in ("x", "tg", "app", "hq", "go")]
+    out += [f"{p}_{w}" for p in ("the", "real", "its", "get")]
+
+    seen, result = {w}, []
+    for name in out:
+        # Ники на «bot» в Telegram разрешены только ботам
+        if name not in seen and is_valid_username(name) and not name.endswith("bot"):
+            seen.add(name)
+            result.append(name)
+    return result
+
+
 class CheckerUnavailable(Exception):
     """t.me / Fragment / Telegram подряд не отвечают — продолжать поиск бессмысленно."""
 
@@ -248,6 +303,34 @@ class UsernameChecker:
                 log.warning("Поиск остановлен: %d проверок подряд без ответа от сервисов", unknown_streak)
                 raise CheckerUnavailable()
         return None, checked
+
+    async def find_many(
+        self, names: list[str], limit: int, batch: int = 6, max_seconds: float = 60
+    ) -> tuple[list[CheckResult], int]:
+        """Проверяет готовый список по порядку и собирает до limit свободных.
+
+        Возвращает (найденные, сколько имён из списка обработано) — с этого места можно продолжить.
+        """
+        found: list[CheckResult] = []
+        unknown_streak = 0
+        deadline = time.monotonic() + max_seconds
+        pos = 0
+        while pos < len(names) and time.monotonic() < deadline:
+            chunk = names[pos : pos + batch]
+            results = await asyncio.gather(*(self.check(n) for n in chunk))
+            for i, r in enumerate(results):
+                if r.is_free:
+                    found.append(r)
+                    if len(found) >= limit:
+                        return found, pos + i + 1
+                unknown_streak = unknown_streak + 1 if r.status == "unknown" else 0
+            pos += len(chunk)
+            if unknown_streak >= self.MAX_UNKNOWN_STREAK:
+                if found:
+                    return found, pos
+                log.warning("Поиск по слову остановлен: %d проверок подряд без ответа", unknown_streak)
+                raise CheckerUnavailable()
+        return found, pos
 
 
 STATUS_TEXT = {

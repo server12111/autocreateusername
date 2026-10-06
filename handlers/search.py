@@ -24,8 +24,19 @@ from services.username_checker import (
     is_valid_username,
     normalize,
     validate_mask,
+    validate_word,
+    word_variants,
 )
-from texts import FOUND_TEXT, MASK_PROMPT, NO_SPONSORS_TEXT, PAYWALL_TEXT, PREMIUM_ONLY_TEXT, SPONSOR_BONUS_TEXT, TRAP_PROMPT
+from texts import (
+    FOUND_TEXT,
+    MASK_PROMPT,
+    NO_SPONSORS_TEXT,
+    PAYWALL_TEXT,
+    PREMIUM_ONLY_TEXT,
+    SPONSOR_BONUS_TEXT,
+    TRAP_PROMPT,
+    WORD_PROMPT,
+)
 
 log = logging.getLogger(__name__)
 router = Router(name="search")
@@ -37,6 +48,7 @@ _in_progress: set[int] = set()
 class SearchStates(StatesGroup):
     mask = State()
     trap = State()
+    word = State()
 
 
 @router.callback_query(F.data == "menu:search")
@@ -129,17 +141,34 @@ async def run_search(
     name_pool: FreeNamePool | None = None,
     pool_length: int | None = None,
 ) -> None:
+    await _guarded(event, user, _run_search(event, session, user, checker, mode, generator, title, name_pool, pool_length))
+
+
+async def _guarded(event: CallbackQuery | Message, user: User, search) -> None:
+    """Один поиск на пользователя за раз; фоновый поиск запаса ников на это время встаёт на паузу."""
     if user.tg_id in _in_progress:
+        search.close()
         if isinstance(event, CallbackQuery):
             await event.answer("⏳ Поиск уже идёт, подождите…", show_alert=True)
         return
     # Ставим блокировку до списания, чтобы двойной клик не запустил два поиска
     _in_progress.add(user.tg_id)
     try:
-        with activity.user_search():  # фоновый поиск запаса ников на это время встаёт на паузу
-            await _run_search(event, session, user, checker, mode, generator, title, name_pool, pool_length)
+        with activity.user_search():
+            await search
     finally:
         _in_progress.discard(user.tg_id)
+
+
+async def _wait_message(event: CallbackQuery | Message, wait_text: str) -> Message:
+    """Показывает «ищу…» в сообщении с кнопкой или новым сообщением."""
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+    if isinstance(event, CallbackQuery) and isinstance(event.message, Message):
+        await safe_edit(event, wait_text)
+        return event.message
+    target = event if isinstance(event, Message) else event.message
+    return await event.bot.send_message(target.chat.id, wait_text)
 
 
 async def _run_search(
@@ -157,14 +186,7 @@ async def _run_search(
     if not source:
         return
     wait_text = f"⏳ <b>{title}</b>\n\nГенерирую варианты и проверяю их в Telegram и на Fragment…"
-    if isinstance(event, CallbackQuery):
-        await event.answer()
-    if isinstance(event, CallbackQuery) and isinstance(event.message, Message):
-        msg = event.message
-        await safe_edit(event, wait_text)
-    else:
-        target = event if isinstance(event, Message) else event.message
-        msg = await event.bot.send_message(target.chat.id, wait_text)
+    msg = await _wait_message(event, wait_text)
 
     ticker = asyncio.create_task(_tick(msg, wait_text))
     try:
@@ -283,6 +305,167 @@ async def search_mask_again(call: CallbackQuery, session: AsyncSession, user: Us
 async def save_finding(call: CallbackQuery, session: AsyncSession, user: User) -> None:
     ok = await crud.save_finding(session, user.tg_id, int(call.data.split(":")[2]))
     await call.answer("📁 Сохранено в «Мои находки»" if ok else "Не удалось сохранить", show_alert=not ok)
+
+
+# ───────────────────────── Поиск по слову ─────────────────────────
+
+WORD_LIMIT = 5  # свободных вариантов за один поиск
+
+
+@router.callback_query(F.data == "s:word")
+async def search_word_prompt(call: CallbackQuery, user: User, state: FSMContext) -> None:
+    if not await _premium_gate(call, user):
+        return
+    await call.answer()
+    await state.set_state(SearchStates.word)
+    await safe_edit(call, WORD_PROMPT, inline.cancel_kb())
+
+
+@router.message(SearchStates.word, F.text)
+async def search_word_input(
+    message: Message, session: AsyncSession, user: User, state: FSMContext, checker: UsernameChecker
+) -> None:
+    word = message.text.strip().lstrip("@").lower()
+    error = validate_word(word)
+    if error:
+        await message.answer(f"⚠️ {error}\n\nОтправьте другое слово:", reply_markup=inline.cancel_kb())
+        return
+    await state.set_state(None)
+    await state.update_data(word=word, word_pos=0, word_ids=[], word_trap=False)
+    await _guarded(message, user, _run_word_search(message, session, user, state, checker, word, 0))
+
+
+@router.callback_query(F.data == "s:wmore")
+async def search_word_more(
+    call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext, checker: UsernameChecker
+) -> None:
+    if not await _premium_gate(call, user):
+        return
+    data = await state.get_data()
+    word = data.get("word")
+    if not word:
+        await search_word_prompt(call, user, state)
+        return
+    await _guarded(call, user, _run_word_search(call, session, user, state, checker, word, data.get("word_pos", 0)))
+
+
+async def _run_word_search(
+    event: CallbackQuery | Message,
+    session: AsyncSession,
+    user: User,
+    state: FSMContext,
+    checker: UsernameChecker,
+    word: str,
+    pos: int,
+) -> None:
+    source = await _reserve_search(event, session, user)
+    if not source:
+        return
+    wait_text = f"⏳ <b>Подбираю ники по слову «{word}»</b>\n\nПроверяю варианты в Telegram и на Fragment…"
+    msg = await _wait_message(event, wait_text)
+    ticker = asyncio.create_task(_tick(msg, wait_text))
+
+    names = word_variants(word)
+    exact = None
+    try:
+        exclude = await crud.recently_checked_by_user(session, user.tg_id, since_hours=24 * 7)
+        found = []
+        # Само слово проверяем только на первой странице
+        if pos == 0 and is_valid_username(word):
+            exact = await checker.check(word)
+            if exact.is_free and word not in exclude:
+                found.append(exact)
+        todo = [(i, n) for i, n in enumerate(names) if i >= pos and n not in exclude]
+        more, done = await checker.find_many([n for _, n in todo], WORD_LIMIT - len(found))
+        found += more
+        new_pos = todo[done - 1][0] + 1 if done else pos
+        if done == len(todo):
+            new_pos = len(names)
+    except CheckerUnavailable:
+        await _refund(session, user, source)
+        await msg.edit_text(
+            "⚠️ Сервисы проверки (Telegram / Fragment) сейчас не отвечают.\n\n"
+            "Поиск <b>не списан</b> — попробуйте через пару минут.",
+            reply_markup=inline.retry_kb("word"),
+        )
+        return
+    except Exception:
+        log.exception("Ошибка поиска по слову")
+        await _refund(session, user, source)
+        await msg.edit_text("⚠️ Сервис проверки временно недоступен. Поиск <b>не списан</b> — попробуйте позже.",
+                            reply_markup=inline.retry_kb("word"))
+        return
+    finally:
+        ticker.cancel()
+
+    data = await state.get_data()
+    can_trap = data.get("word_trap", False)
+    if exact is not None:
+        can_trap = not exact.is_free and exact.status != "invalid"
+    exact_line = ""
+    if exact is not None and not exact.is_free and exact.status != "invalid":
+        status = STATUS_TEXT.get(exact.status, exact.status)
+        if exact.fragment_price:
+            status += f" ({exact.fragment_price} TON)"
+        exact_line = f"\n\n<b>@{word}</b> — {status}"
+
+    if not found:
+        await _refund(session, user, source)
+        await state.update_data(word_pos=len(names), word_ids=[], word_trap=can_trap)
+        await msg.edit_text(
+            f"😔 Свободных вариантов для «{word}» больше не нашлось.{exact_line}\n\n"
+            "Поиск <b>не списан</b> — попробуйте другое слово.",
+            reply_markup=inline.word_found_kb(word, False, can_trap, can_save=False),
+        )
+        return
+
+    ids = []
+    for r in found:
+        row = await crud.add_search(session, user.tg_id, r.username, True, True, "free")
+        ids.append(row.id)
+    user.total_searches_done += 1
+    await session.commit()
+    await state.update_data(word_pos=new_pos, word_ids=ids, word_trap=can_trap)
+
+    lines = [f"{i}. <code>@{r.username}</code>" for i, r in enumerate(found, 1)]
+    head = "🎉 Само слово свободно!\n\n" if exact is not None and exact.is_free else ""
+    text = (
+        f"✍️ <b>Свободные ники по слову «{word}»</b>\n\n{head}"
+        + "\n".join(lines)
+        + exact_line
+        + "\n\n👆 Нажмите на ник, чтобы скопировать. Занимайте скорее — свободные ники быстро разбирают."
+    )
+    await msg.edit_text(text, reply_markup=inline.word_found_kb(word, new_pos < len(names), can_trap))
+
+
+@router.callback_query(F.data == "s:wsave")
+async def search_word_save(call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    ids = (await state.get_data()).get("word_ids") or []
+    saved = 0
+    for search_id in ids:
+        saved += await crud.save_finding(session, user.tg_id, search_id)
+    if saved:
+        await call.answer(f"📁 Сохранено в «Мои находки»: {saved}")
+    else:
+        await call.answer("Нечего сохранять — запустите поиск заново", show_alert=True)
+
+
+@router.callback_query(F.data == "s:wtrap")
+async def search_word_trap(call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
+    if not await _premium_gate(call, user):
+        return
+    word = (await state.get_data()).get("word")
+    if not word or not is_valid_username(word):
+        await call.answer("Ловушку на это слово поставить нельзя", show_alert=True)
+        return
+    if len(await crud.get_user_traps(session, user.tg_id)) >= MAX_TRAPS:
+        await call.answer(f"Достигнут лимит в {MAX_TRAPS} ловушек", show_alert=True)
+        return
+    trap = await crud.add_trap(session, user.tg_id, word)
+    if trap:
+        await call.answer(f"✅ Ловушка на @{word} установлена — сообщу, как только ник освободится", show_alert=True)
+    else:
+        await call.answer(f"ℹ️ Ловушка на @{word} уже активна", show_alert=True)
 
 
 # ───────────────────────── Ловушка на ник ─────────────────────────

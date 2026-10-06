@@ -154,6 +154,15 @@ MASK_PROMPT = (
     "Примеры: <code>CVCVC</code>, <code>neoCVC</code>, <code>CVCV_tg</code>, <code>proCVDD</code>"
 )
 
+WORD_PROMPT = (
+    "✍️ <b>ПОИСК ПО СЛОВУ</b>\n"
+    "\n"
+    "Отправьте слово латиницей — бот подберёт до 5 свободных ников на его основе.\n\n"
+    "Например, для <code>crypto</code>: <code>cryptoly</code>, <code>getcrypto</code>, "
+    "<code>crypt0</code>, <code>cryptohq</code>…\n\n"
+    "Слово: 3–20 латинских букв и цифр, начинается с буквы."
+)
+
 TRAP_PROMPT = (
     "🪤 <b>ЛОВУШКА НА НИК (СНАЙПЕР)</b>\n"
     "\n"
