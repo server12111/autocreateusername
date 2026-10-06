@@ -75,6 +75,7 @@ def _kb(*rows: tuple[str, str], width: int = 1) -> InlineKeyboardMarkup:
 
 
 BACK = ("🔙 В админку", "adm:home")
+_bg_tasks: set[asyncio.Task] = set()  # фоновые задачи (рассылки), пока они выполняются
 
 
 # ───────────────────────── Главная ─────────────────────────
@@ -592,7 +593,11 @@ async def adm_bc_go(call: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     await call.answer("🚀 Рассылка запущена")
     await safe_edit(call, "🚀 Рассылка запущена в фоне. Отчёт придёт по завершении", _kb(BACK))
-    asyncio.create_task(_broadcast(bot, call.from_user.id, data["bc_chat"], data["bc_mid"], data.get("bc_buttons")))
+    task = asyncio.create_task(_broadcast(bot, call.from_user.id, data["bc_chat"], data["bc_mid"], data.get("bc_buttons")))
+    # Храним ссылку до конца: на задачу без ссылок asyncio держит только слабую, и сборщик мусора
+    # может уничтожить её посреди рассылки
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 # ───────────────────────── Пользователи ─────────────────────────

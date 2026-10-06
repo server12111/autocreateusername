@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
@@ -116,20 +117,28 @@ async def _reserve_search(event: CallbackQuery | Message, session: AsyncSession,
         else:
             await event.answer(msg)
         return None
+    # Счётчики могли измениться в других обновлениях (покупка, бонус) — берём свежие из базы
+    await session.refresh(user)
     if user.free_searches_left > 0:
-        user.free_searches_left -= 1
-        source = "free"
+        column, source = User.free_searches_left, "free"
     elif user.paid_searches_left > 0:
-        user.paid_searches_left -= 1
-        source = "paid"
+        column, source = User.paid_searches_left, "paid"
     else:
-        if isinstance(event, CallbackQuery):
-            await event.answer()
-        await show_no_balance(event, session, user)
-        return None
-    user.last_search_at = utcnow()
-    await session.commit()
-    return source
+        column = source = None
+    if column is not None:
+        # Атомарно «минус один от значения в базе», а не запись прочитанного ранее значения
+        res = await session.execute(
+            update(User).where(User.tg_id == user.tg_id, column > 0)
+            .values({column: column - 1, User.last_search_at: utcnow()})
+        )
+        await session.commit()
+        await session.refresh(user)
+        if res.rowcount == 1:
+            return source
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+    await show_no_balance(event, session, user)
+    return None
 
 
 def _until_msk_midnight() -> str:
@@ -153,12 +162,16 @@ async def premium_limit_reached(event: CallbackQuery | Message, session: AsyncSe
 
 
 async def _refund(session: AsyncSession, user: User, source: str) -> None:
+    # Поиск мог идти минутами, а за это время баланс меняли (покупка пакета, бонус) —
+    # возвращаем атомарно «плюс один к значению в базе», а не записываем устаревшее значение
+    values = {User.last_search_at: None}
     if source == "free":
-        user.free_searches_left += 1
+        values[User.free_searches_left] = User.free_searches_left + 1
     elif source == "paid":
-        user.paid_searches_left += 1
-    user.last_search_at = None
+        values[User.paid_searches_left] = User.paid_searches_left + 1
+    await session.execute(update(User).where(User.tg_id == user.tg_id).values(values))
     await session.commit()
+    await session.refresh(user)
 
 
 async def run_search(

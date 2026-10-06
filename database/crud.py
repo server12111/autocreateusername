@@ -218,10 +218,14 @@ async def claim_sponsor_bonus(session: AsyncSession, user: User) -> int:
     if user.sponsor_bonus_claimed:
         return 0
     bonus = await get_setting_int(session, "sponsor_bonus")
-    user.sponsor_bonus_claimed = True
-    user.free_searches_left += bonus
+    # Атомарно и только если бонус ещё не получен: двойное нажатие не начислит его дважды
+    res = await session.execute(
+        update(User).where(User.tg_id == user.tg_id, User.sponsor_bonus_claimed.is_(False))
+        .values(sponsor_bonus_claimed=True, free_searches_left=User.free_searches_left + bonus)
+    )
     await session.commit()
-    return bonus
+    await session.refresh(user)
+    return bonus if res.rowcount == 1 else 0
 
 
 async def cleanup_old_records(session: AsyncSession, days: int = 30) -> dict[str, int]:
@@ -245,13 +249,23 @@ async def credit_referral(session: AsyncSession, user: User) -> tuple[User, int 
     """Засчитывает реферала. Возвращает (реферер, дни награды | None) или None."""
     if user.is_ref_counted or not user.referrer_id or not user.is_captcha_passed:
         return None
-    user.is_ref_counted = True
+    # Атомарно и только один раз: два параллельных обновления одного друга не засчитают его дважды
+    res = await session.execute(
+        update(User).where(User.tg_id == user.tg_id, User.is_ref_counted.is_(False)).values(is_ref_counted=True)
+    )
+    if res.rowcount != 1:
+        await session.commit()
+        await session.refresh(user)
+        return None
+    await session.execute(
+        update(User).where(User.tg_id == user.referrer_id).values(referrals_count=User.referrals_count + 1)
+    )
+    await session.commit()
+    await session.refresh(user)
     referrer = await get_user(session, user.referrer_id)
     if not referrer:
-        await session.commit()
         return None
-    referrer.referrals_count += 1
-    await session.commit()
+    await session.refresh(referrer)
     reward = next((days for need, days in REF_TIERS if need == referrer.referrals_count), None)
     if reward:
         await add_premium_days(session, referrer, reward)
@@ -494,8 +508,11 @@ async def activate_promocode(session: AsyncSession, user: User, code: str) -> tu
                 f"✅ Промокод активирован!\n\n💎 Начислено: <b>+{value} дн. Premium</b>\n"
                 f"Premium активен до: <b>{msk(until):%d.%m.%Y %H:%M}</b> МСК"
             )
-        user.paid_searches_left += value
+        await session.execute(
+            update(User).where(User.tg_id == user.tg_id).values(paid_searches_left=User.paid_searches_left + value)
+        )
         await session.commit()
+        await session.refresh(user)
     except IntegrityError:
         # Код отправили дважды подряд: первая активация уже прошла, вторая упёрлась в уникальность
         await session.rollback()

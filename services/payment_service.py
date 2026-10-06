@@ -4,6 +4,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from aiogram import Bot
 from aiogram.types import LabeledPrice, SuccessfulPayment
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,8 +122,13 @@ async def _grant(session: AsyncSession, user: User, payload: str, paid: str, tx_
         ]
     else:
         count, _ = SEARCH_PACKS[payload]
-        user.paid_searches_left += count
+        # Атомарно «плюс count к значению в базе»: объект user мог устареть (параллельный поиск)
+        await session.execute(
+            update(User).where(User.tg_id == user.tg_id)
+            .values(paid_searches_left=User.paid_searches_left + count)
+        )
         await session.commit()
+        await session.refresh(user)
         lines += [
             f"📦 Товар: <b>{count} поисков</b>",
             f"💳 Оплачено: <b>{paid}</b>",
