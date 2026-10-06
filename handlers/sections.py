@@ -6,7 +6,7 @@ from aiogram import Bot
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import REF_TIERS
+from config import REF_TIERS, plural
 from database import crud
 from database.models import User, msk, utcnow
 from keyboards import inline
@@ -86,7 +86,9 @@ async def premium_limit_phrase(session: AsyncSession) -> str:
 
 
 async def build_shop(session: AsyncSession, user: User, bot: Bot) -> Screen:
-    return SHOP_TEXT.format(limit=await premium_limit_phrase(session)), inline.shop_kb(), "premium"
+    limit = await crud.get_setting_int(session, "premium_daily_limit")
+    line = f"{limit} {plural(limit, 'поиск', 'поиска', 'поисков')} в день" if limit > 0 else "Безлимитный поиск"
+    return SHOP_TEXT.format(limit=line), inline.shop_kb(), "premium"
 
 
 async def build_profile(session: AsyncSession, user: User, bot: Bot) -> Screen:

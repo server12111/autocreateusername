@@ -49,28 +49,28 @@ def _friends(n: int) -> str:
 
 
 # Списки цен и наград собираются из config.py — менять цены нужно только там
-_PLANS_LIST = _tree([f"{plan_period(days)} — {price} ⭐️ Stars / ${PRICES_USD[key]}"
-                     for key, (days, price) in PREMIUM_PLANS.items()])
 _PACKS_LIST = _tree([f"{count} {plural(count, 'поиск', 'поиска', 'поисков')} — {price} ⭐️ / ${PRICES_USD[key]}"
                      for key, (count, price) in SEARCH_PACKS.items()])
-_REF_LIST = "\n".join(f"• {_friends(need)} ➔ +{plan_period(days)} Premium" for need, days in REF_TIERS)
+
+_PLANS_SHORT = "\n".join(f"{plan_period(days)} — {price} stars/${PRICES_USD[key]}"
+                         for key, (days, price) in PREMIUM_PLANS.items())
+# Уровни рефералов по два в строке: «7 → +1 день • 9 → +3 дня»
+_REF_PAIRS = [f"{need} → +{plan_period(days)}" for need, days in REF_TIERS]
+_REF_SHORT = "\n".join(" • ".join(_REF_PAIRS[i : i + 2]) for i in range(0, len(_REF_PAIRS), 2))
 
 SHOP_TEXT = (
-    "💎 <b>PREMIUM И ТАРИФЫ</b>\n"
-    "\n"
-    "🔥 Возможности Premium подписки:\n"
-    "• 🚀 Поиск юзернеймов — {limit}\n"
-    "• ⚡️ Нулевая задержка между поисками (0 сек)\n"
-    "• 💎 Доступ к генерации редких 5-буквенных ников\n"
-    "• ✍️ Поиск по слову: до 5 свободных ников за раз\n"
-    "• 🎯 Продвинутый поиск по маскам и паттернам\n"
-    "• 🪤 Снайпер-ловушка: автоматический перехват занятых ников\n\n"
-    "💵 Доступные тарифы:\n"
-    f"{_PLANS_LIST}\n\n"
-    "💳 Оплата: Telegram Stars, CryptoBot или xRocket.\n"
-    "⚙️ Подписка активируется моментально после оплаты.\n\n"
-    "🎁 Либо получите Premium <b>БЕСПЛАТНО</b> за друзей:\n"
-    f"{_REF_LIST}"
+    "💎 <b>PREMIUM</b>\n\n"
+    "<blockquote>👀 <b>Возможности:</b>\n"
+    "{limit}\n"
+    "0 сек задержки\n"
+    "Редкие 5-буквенные ники\n"
+    "Поиск по маскам и паттернам\n"
+    "Автоперехват свободных ников</blockquote>\n\n"
+    "<blockquote>💱 <b>Тарифы:</b>\n"
+    f"{_PLANS_SHORT}</blockquote>\n\n"
+    "<b>Бесплатно за рефералов:</b>\n"
+    f"{_REF_SHORT}\n\n"
+    "💳 Stars • CryptoBot • xRocket"
 )
 
 PACKS_TEXT = (
