@@ -470,6 +470,25 @@ async def pending_crypto_invoices(session: AsyncSession, grace_sec: int = 600) -
     )
 
 
+async def claim_paid_crypto_invoice(session: AsyncSession, inv: CryptoInvoice, cents: int) -> bool:
+    """Помечает счёт оплаченным и добавляет платёж — БЕЗ commit: начисление товара коммитит всё разом.
+
+    False — счёт уже обработан другим вызовом. Если начисление упадёт до commit, откатится и статус,
+    и следующая проверка попробует снова.
+    """
+    res = await session.execute(
+        update(CryptoInvoice).where(CryptoInvoice.id == inv.id, CryptoInvoice.status == "active").values(status="paid")
+    )
+    if res.rowcount != 1:
+        await session.rollback()
+        return False
+    session.add(
+        Payment(user_id=inv.user_id, payload=inv.payload, amount=cents, currency="USD",
+                charge_id=f"{inv.provider}:{inv.invoice_id}")
+    )
+    return True
+
+
 async def set_crypto_invoice_status(session: AsyncSession, inv_id: int, status: str, only_if: str = "active") -> bool:
     """Атомарно меняет статус. True — именно этот вызов перевёл счёт (защита от двойного начисления)."""
     res = await session.execute(

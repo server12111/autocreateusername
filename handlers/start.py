@@ -123,7 +123,9 @@ async def check_op(call: CallbackQuery, bot: Bot, session: AsyncSession, user: U
         return
     if state.missing:
         bonus = await crud.get_setting_int(session, "sponsor_bonus")
-        await call.answer("❌ Вы подписались не на все каналы. Пожалуйста, завершите подписку.", show_alert=True)
+        # Спонсоров показываем по 6: после подписки на первые в списке появляются следующие
+        await call.answer("Остались каналы без подписки — список ниже обновлён. Подпишитесь и проверьте ещё раз.",
+                          show_alert=True)
         await safe_edit(call, SPONSOR_BONUS_TEXT.format(bonus=bonus), sponsor_bonus_kb(state.missing))
         return
     bonus = await crud.claim_sponsor_bonus(session, user)

@@ -428,7 +428,7 @@ async def _run_word_search(
     await state.update_data(word_pos=new_pos, word_ids=ids, word_trap=can_trap)
 
     lines = [f"{i}. <code>@{r.username}</code>" for i, r in enumerate(found, 1)]
-    head = "🎉 Само слово свободно!\n\n" if exact is not None and exact.is_free else ""
+    head = "🎉 Само слово свободно!\n\n" if exact is not None and exact in found else ""
     text = (
         f"✍️ <b>Свободные ники по слову «{word}»</b>\n\n{head}"
         + "\n".join(lines)

@@ -112,15 +112,16 @@ async def get_or_create_crypto_invoice(
 
 async def complete_crypto_invoice(session: AsyncSession, inv: CryptoInvoice) -> str | None:
     """Счёт оплачен: начисляет товар один раз. Возвращает чек или None, если счёт уже обработан."""
-    if not await crud.set_crypto_invoice_status(session, inv.id, "paid"):
+    if not await crud.claim_paid_crypto_invoice(session, inv, int(Decimal(inv.amount_usd) * 100)):
         return None
-    charge_id = f"{inv.provider}:{inv.invoice_id}"
-    cents = int(Decimal(inv.amount_usd) * 100)
-    if not await crud.add_payment(session, inv.user_id, inv.payload, cents, charge_id, currency="USD"):
-        return None
-    user = await crud.get_user(session, inv.user_id)
-    paid = f"${inv.amount_usd} через {crypto_pay.provider_name(inv.provider)}"
-    return await _grant(session, user, inv.payload, paid, charge_id)
+    try:
+        user = await crud.get_user(session, inv.user_id)
+        paid = f"${inv.amount_usd} через {crypto_pay.provider_name(inv.provider)}"
+        # Статус счёта, платёж и сама покупка сохраняются одним commit внутри _grant
+        return await _grant(session, user, inv.payload, paid, f"{inv.provider}:{inv.invoice_id}")
+    except Exception:
+        await session.rollback()
+        raise
 
 
 async def check_crypto_invoice(session: AsyncSession, inv: CryptoInvoice) -> tuple[str, str | None]:

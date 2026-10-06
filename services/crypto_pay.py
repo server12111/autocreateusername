@@ -124,6 +124,11 @@ async def _xrocket_create(amount: str, description: str, payload: str) -> Create
 
 
 async def _xrocket_statuses(ids: list[str]) -> dict[str, str]:
+    # У каждого метода свой лимит 20 запросов/мин: одиночные проверки по кнопке идут через
+    # /invoice, чтобы не отнимать лимит у фоновой проверки списком
+    if len(ids) == 1:
+        res = await _xrocket("GET", "invoice", params={"invoiceId": ids[0]})
+        return {str(res["id"]): res["status"]}
     res = await _xrocket("GET", "invoices", params=[("ids[]", i) for i in ids] + [("limit", str(len(ids)))])
     return {str(i["id"]): i["status"] for i in res.get("items", [])}
 
