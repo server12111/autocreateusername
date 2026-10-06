@@ -12,6 +12,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+from telethon.tl.functions.auth import ResendCodeRequest
 from telethon.errors import (
     PasswordHashInvalidError,
     PhoneCodeExpiredError,
@@ -162,14 +163,81 @@ async def acc_phone_input(message: Message, pool: MTProtoPool, state: FSMContext
         await client.disconnect()
         await message.answer(f"❌ Ошибка: <code>{html.escape(str(e))}</code>", reply_markup=_cancel_kb())
         return
+    where, can_send = _code_destination(sent)
+    if not can_send:
+        await client.disconnect()
+        await message.answer(f"❌ {where}", reply_markup=_cancel_kb())
+        return
     _logins[message.from_user.id] = {"client": client, "phone": phone, "hash": sent.phone_code_hash, "file": file}
     await state.set_state(AccStates.code)
-    await message.answer(
-        "📨 Код отправлен в Telegram (или по SMS) на этот аккаунт.\n\n"
+    await message.answer(_code_prompt(where), reply_markup=_code_kb(sent))
+
+
+# Куда Telegram отправил код входа — по типу ответа auth.sentCode
+_CODE_WHERE = {
+    "SentCodeTypeApp": "в приложение Telegram — сообщением в чате <b>«Telegram»</b> (с синей галочкой) "
+                       "на устройстве, где этот аккаунт уже открыт. Это не SMS",
+    "SentCodeTypeSms": "по <b>SMS</b> на номер",
+    "SentCodeTypeSmsWord": "по <b>SMS</b> на номер (код — слово из сообщения)",
+    "SentCodeTypeSmsPhrase": "по <b>SMS</b> на номер (код — фраза из сообщения)",
+    "SentCodeTypeFirebaseSms": "по <b>SMS</b> на номер",
+    "SentCodeTypeCall": "<b>звонком</b> — робот продиктует код",
+    "SentCodeTypeFlashCall": "<b>звонком-сбросом</b> — код в последних цифрах номера, с которого позвонят",
+    "SentCodeTypeMissedCall": "<b>пропущенным звонком</b> — код в последних цифрах номера, с которого позвонят",
+    "SentCodeTypeFragmentSms": "на <b>Fragment</b> (fragment.com → My Assets → номер) — номер куплен на Fragment",
+    "SentCodeTypeEmailCode": "на <b>почту</b>, привязанную к аккаунту для входа",
+}
+
+
+def _code_destination(sent) -> tuple[str, bool]:
+    """(куда отправлен код, удалось ли отправить)."""
+    kind = type(sent).__name__
+    if kind == "SentCodePaymentRequired":
+        return ("Telegram требует оплату за отправку SMS этому номеру и код не отправил. Войдите в аккаунт "
+                "через приложение Telegram и загрузите файл .session (кнопка «📎 Загрузить .session»)"), False
+    if kind == "SentCodeSuccess":
+        return "Telegram сразу авторизовал вход без кода — попробуйте добавить аккаунт ещё раз", False
+    code_type = type(getattr(sent, "type", None)).__name__
+    if code_type == "SentCodeTypeSetUpEmailRequired":
+        return ("Telegram требует сначала привязать к этому аккаунту почту для входа и код не отправил. "
+                "Откройте аккаунт в приложении: Настройки → Конфиденциальность → Почта для входа, "
+                "затем попробуйте снова — или загрузите .session"), False
+    return _CODE_WHERE.get(code_type, "в Telegram или по SMS"), True
+
+
+def _code_prompt(where: str) -> str:
+    return (
+        f"📨 Код отправлен {where}\n\n"
         "⚠️ Отправьте код <b>через пробелы или дефисы</b>, например <code>1 2 3 4 5</code> — "
-        "иначе Telegram заблокирует код как «пересланный».",
-        reply_markup=_cancel_kb(),
+        "иначе Telegram заблокирует код как «пересланный»"
     )
+
+
+def _code_kb(sent):
+    kb = InlineKeyboardBuilder()
+    if getattr(sent, "next_type", None):  # Telegram разрешает отправить код другим способом
+        kb.button(text="🔁 Отправить другим способом", callback_data="adm:acc:resend")
+    kb.button(text="❌ Отмена", callback_data="adm:acc:cancel")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+@router.callback_query(F.data == "adm:acc:resend")
+async def acc_resend_code(call: CallbackQuery) -> None:
+    data = _logins.get(call.from_user.id)
+    if not data:
+        await call.answer("Вход устарел — начните заново", show_alert=True)
+        return
+    try:
+        sent = await data["client"](ResendCodeRequest(data["phone"], data["hash"]))
+    except Exception as e:
+        # Например, Telegram ещё не разрешает повтор (нужно подождать) или способов больше нет
+        await call.answer(f"Не получилось: {str(e)[:150]}", show_alert=True)
+        return
+    data["hash"] = sent.phone_code_hash
+    where, _ = _code_destination(sent)
+    await call.answer("Код отправлен заново")
+    await safe_edit(call, _code_prompt(where), _code_kb(sent))
 
 
 async def _finish_login(message: Message, pool: MTProtoPool, state: FSMContext) -> None:
