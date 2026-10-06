@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 
 from aiogram import Bot, Dispatcher
@@ -92,7 +93,9 @@ async def main() -> None:
 
     pool = MTProtoPool(settings.SESSIONS_DIR, settings.API_ID, settings.API_HASH)
     await pool.init_pool()
-    resolver = BotResolver("data/bot_mtproto", settings.API_ID, settings.API_HASH, settings.BOT_TOKEN)
+    resolver = BotResolver(
+        os.path.join(settings.DATA_DIR, "bot_mtproto"), settings.API_ID, settings.API_HASH, settings.BOT_TOKEN
+    )
     await resolver.start()
     checker = UsernameChecker(pool, resolver=resolver)
 

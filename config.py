@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,7 +7,10 @@ class Settings(BaseSettings):
 
     BOT_TOKEN: str
     ADMIN_IDS: str = ""
-    DATABASE_URL: str = "sqlite+aiosqlite:///data/bot.db"
+    # Папка для всех файлов бота (БД, сессия бота). На хостинге — та, что сохраняется при перезапуске,
+    # например на Bothost это /app/data (переменная DATA_DIR)
+    DATA_DIR: str = "data"
+    DATABASE_URL: str = ""  # пусто — SQLite в DATA_DIR/bot.db
 
     API_ID: int = 0
     API_HASH: str = ""
@@ -19,6 +23,12 @@ class Settings(BaseSettings):
     # Оплата в долларах: Crypto Pay API (@CryptoBot) и xRocket Pay API
     CRYPTOBOT_TOKEN: str = ""
     XROCKET_TOKEN: str = ""
+
+    @model_validator(mode="after")
+    def _defaults_in_data_dir(self) -> "Settings":
+        if not self.DATABASE_URL:
+            self.DATABASE_URL = f"sqlite+aiosqlite:///{self.DATA_DIR}/bot.db"
+        return self
 
     @property
     def admin_ids(self) -> set[int]:
