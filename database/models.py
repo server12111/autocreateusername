@@ -31,6 +31,10 @@ class User(Base):
     is_captcha_passed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
     premium_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    premium_extended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # когда последний раз продлён
+    premium_notified_for: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # premium_until, о котором уже напомнили
+    discount_pct: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # скидка на продление Premium
+    discount_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     free_searches_left: Mapped[int] = mapped_column(Integer, default=1)
     sponsor_bonus_claimed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     paid_searches_left: Mapped[int] = mapped_column(Integer, default=0)

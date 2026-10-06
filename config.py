@@ -65,6 +65,7 @@ DEFAULT_SETTINGS = {
     "support_url": "https://t.me/avalnm",
     "battle_enabled": "1",
     "captcha_enabled": "0",
+    "renew_discount_pct": "20",
     "premium_emoji": "{}",
     "premium_emoji_enabled": "1",
     "button_colors_enabled": "1",

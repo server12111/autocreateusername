@@ -1,6 +1,6 @@
 import logging
 import time
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from aiogram import Bot
 from aiogram.types import LabeledPrice, SuccessfulPayment
@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import PREMIUM_PLANS, PRICES_USD, SEARCH_PACKS
 from database import crud
 from database.base import session_maker
-from database.models import CryptoInvoice, User, msk
+from database.models import CryptoInvoice, User, msk, utcnow
 from services import crypto_pay
 
 log = logging.getLogger(__name__)
@@ -27,15 +27,63 @@ def describe(payload: str) -> tuple[str, str, int] | None:
     return None
 
 
-def price_usd(payload: str) -> str | None:
-    return PRICES_USD.get(payload) if describe(payload) else None
+def active_discount(user: User | None) -> int:
+    """Скидка на продление Premium в процентах (0 — нет или истекла)."""
+    if user and user.discount_pct and user.discount_until and user.discount_until > utcnow():
+        return user.discount_pct
+    return 0
 
 
-async def send_stars_invoice(bot: Bot, chat_id: int, payload: str) -> bool:
+def apply_discount(stars: int, pct: int) -> int:
+    return max(1, round(stars * (100 - pct) / 100)) if pct else stars
+
+
+def apply_discount_usd(usd: str, pct: int) -> str:
+    if not pct:
+        return usd
+    value = (Decimal(usd) * (100 - pct) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return str(max(value, Decimal("0.01")))
+
+
+def user_price(payload: str, user: User | None) -> tuple[int, str | None, int] | None:
+    """Цена товара для пользователя: (Stars, USD или None, скидка %). Скидка — только на Premium."""
+    info = describe(payload)
+    if not info:
+        return None
+    pct = active_discount(user) if payload in PREMIUM_PLANS else 0
+    usd = PRICES_USD.get(payload)
+    return apply_discount(info[2], pct), (apply_discount_usd(usd, pct) if usd else None), pct
+
+
+def plan_prices(user: User | None) -> tuple[dict[str, int] | None, int]:
+    """Цены тарифов Premium для кнопок: ({ключ: Stars} или None без скидки, скидка %)."""
+    pct = active_discount(user)
+    if not pct:
+        return None, 0
+    return {key: apply_discount(price, pct) for key, (_, price) in PREMIUM_PLANS.items()}, pct
+
+
+def discount_line(user: User | None) -> str:
+    """Строка о скидке на продление для текстов (пусто, если скидки нет)."""
+    pct = active_discount(user)
+    if not pct:
+        return ""
+    return f"🎁 Ваша скидка на продление: <b>−{pct}%</b> до {msk(user.discount_until):%d.%m %H:%M} МСК"
+
+
+def price_usd(payload: str, user: User | None = None) -> str | None:
+    price = user_price(payload, user)
+    return price[1] if price else None
+
+
+async def send_stars_invoice(bot: Bot, chat_id: int, payload: str, user: User | None = None) -> bool:
     info = describe(payload)
     if not info:
         return False
-    title, description, price = info
+    title, description, _ = info
+    price, _, pct = user_price(payload, user)
+    if pct:
+        title += f" (−{pct}%)"
     await bot.send_invoice(
         chat_id=chat_id,
         title=title,
@@ -48,9 +96,12 @@ async def send_stars_invoice(bot: Bot, chat_id: int, payload: str) -> bool:
     return True
 
 
-def validate_pre_checkout(payload: str, total_amount: int, currency: str) -> bool:
+def validate_pre_checkout(payload: str, total_amount: int, currency: str, user: User | None = None) -> bool:
+    """Принимаем текущую цену пользователя или полную (счёт мог быть выставлен до скидки)."""
     info = describe(payload)
-    return bool(info) and currency == "XTR" and info[2] == total_amount
+    if not info or currency != "XTR":
+        return False
+    return total_amount in (info[2], user_price(payload, user)[0])
 
 
 async def _grant(session: AsyncSession, user: User, payload: str, paid: str, tx_id: str) -> str:
@@ -58,6 +109,9 @@ async def _grant(session: AsyncSession, user: User, payload: str, paid: str, tx_
     lines = ["🧾 <b>ЧЕК ОБ ОПЛАТЕ</b>", ""]
     if payload in PREMIUM_PLANS:
         days, _ = PREMIUM_PLANS[payload]
+        if user.discount_pct:
+            user.discount_pct = 0  # скидка на продление одноразовая; сохранится тем же commit
+            user.discount_until = None
         until = await crud.add_premium_days(session, user, days)
         lines += [
             f"📦 Товар: <b>Premium на {days} дн.</b>",
@@ -105,7 +159,7 @@ async def get_or_create_crypto_invoice(
     session: AsyncSession, user: User, provider: str, payload: str
 ) -> CryptoInvoice | None:
     """Счёт в долларах на товар. None — товар не найден. CryptoPayError — платёжка не ответила."""
-    amount = price_usd(payload)
+    amount = price_usd(payload, user)
     if not amount or provider not in crypto_pay.enabled_providers():
         return None
     existing = await crud.find_open_crypto_invoice(session, user.tg_id, provider, payload, amount)

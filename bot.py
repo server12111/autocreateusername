@@ -12,14 +12,16 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import settings
 from database import crud
 from database.base import engine, init_db, session_maker
+from database.models import msk, utcnow
 from handlers import admin, admin_accounts, admin_botohub, admin_style, nickname_battle, profile, referrals, search, shop, start
+from keyboards import inline
 from middlewares.captcha_mw import CaptchaMiddleware
 from middlewares.db_middleware import DbSessionMiddleware
 from services.free_pool import FreeNamePool
 from services.http import close_session
 from services.mtproto_pool import BotResolver, MTProtoPool
 from services.nickname_sniper import run_sniper_cycle
-from services.payment_service import poll_crypto_invoices
+from services.payment_service import discount_line, plan_prices, poll_crypto_invoices
 from services.ui_style import UiStyleMiddleware
 from services.username_checker import UsernameChecker
 
@@ -37,16 +39,43 @@ async def cleanup_db() -> None:
 
 async def premium_expiry(bot: Bot) -> None:
     async with session_maker() as session:
+        await premium_reminders(bot, session)
         expired = await crud.expire_premiums(session)
-    for uid in expired:
-        try:
-            await bot.send_message(
-                uid,
-                "⌛️ Срок вашей Premium-подписки истёк.\n\nПродлите её в разделе «🛒 Магазин», "
-                "чтобы снова искать без ограничений и пользоваться Ловушкой.",
+        for uid in expired:
+            user = await crud.get_user(session, uid)
+            prices, pct = plan_prices(user)
+            text = (
+                "⌛️ Срок вашей Premium-подписки истёк.\n\n"
+                "Продлите её, чтобы снова искать без ограничений и пользоваться Ловушкой."
             )
-        except Exception:
-            pass
+            if pct:
+                text += f"\n\n{discount_line(user)}"
+            try:
+                await bot.send_message(uid, text, reply_markup=inline.renew_kb(prices, pct))
+            except Exception:
+                pass
+
+
+async def premium_reminders(bot: Bot, session) -> None:
+    """Напоминание о скором окончании Premium + скидка на продление (настройка renew_discount_pct)."""
+    pct = min(await crud.get_setting_int(session, "renew_discount_pct"), 90)
+    for user in await crud.premium_reminder_due(session):
+        await crud.mark_premium_reminded(session, user, pct)
+        hours = max(1, round((user.premium_until - utcnow()).total_seconds() / 3600))
+        prices, active = plan_prices(user)
+        text = f"⏳ <b>Ваш Premium закончится через {hours} ч.</b> ({msk(user.premium_until):%d.%m %H:%M} МСК)\n\n"
+        if active:
+            text += (
+                f"🎁 Продлите сейчас со скидкой <b>{active}%</b> — она действует до "
+                f"{msk(user.discount_until):%d.%m %H:%M} МСК, даже если Premium уже закончится.\n\n"
+                "Срок продления добавится к текущему — ничего не сгорит."
+            )
+        else:
+            text += "Продлите заранее — срок добавится к текущему, ничего не сгорит."
+        try:
+            await bot.send_message(user.tg_id, text, reply_markup=inline.renew_kb(prices, active))
+        except Exception as e:
+            log.info("Напоминание о Premium не доставлено %s: %r", user.tg_id, e)
 
 
 async def main() -> None:

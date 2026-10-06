@@ -13,8 +13,10 @@ from services import crypto_pay
 from services.payment_service import (
     check_crypto_invoice,
     describe,
+    discount_line,
     get_or_create_crypto_invoice,
-    price_usd,
+    plan_prices,
+    user_price,
     process_payment,
     send_stars_invoice,
     validate_pre_checkout,
@@ -35,9 +37,11 @@ async def open_shop(call: CallbackQuery, bot: Bot, session: AsyncSession, user: 
 
 
 @router.callback_query(F.data == "shop:premium")
-async def shop_premium(call: CallbackQuery) -> None:
+async def shop_premium(call: CallbackQuery, user: User) -> None:
     await call.answer()
-    await safe_edit(call, PREMIUM_TEXT, inline.premium_plans_kb())
+    prices, pct = plan_prices(user)
+    text = PREMIUM_TEXT + (f"\n\n{discount_line(user)}" if pct else "")
+    await safe_edit(call, text, inline.premium_plans_kb(prices, pct))
 
 
 @router.callback_query(F.data == "shop:packs")
@@ -51,7 +55,7 @@ def _back_for(key: str) -> str:
 
 
 @router.callback_query(F.data.startswith("buy:"))
-async def buy(call: CallbackQuery) -> None:
+async def buy(call: CallbackQuery, user: User) -> None:
     """Выбор способа оплаты: Stars, CryptoBot или xRocket."""
     key = call.data.split(":", 1)[1]
     info = describe(key)
@@ -59,8 +63,8 @@ async def buy(call: CallbackQuery) -> None:
         await call.answer("Товар не найден", show_alert=True)
         return
     await call.answer()
-    title, _, stars = info
-    usd = price_usd(key)
+    title = info[0]
+    stars, usd, pct = user_price(key, user)
     providers = crypto_pay.enabled_providers() if usd else []
     lines = [
         "💳 <b>ВЫБОР СПОСОБА ОПЛАТЫ</b>",
@@ -68,6 +72,8 @@ async def buy(call: CallbackQuery) -> None:
         f"📦 Товар: <b>{title}</b>",
         f"⭐️ Telegram Stars: <b>{stars} ⭐️</b>",
     ]
+    if pct:
+        lines.insert(3, discount_line(user))
     lines += [f"{crypto_pay.provider_emoji_html(p)} {crypto_pay.provider_name(p)}: <b>${usd}</b>" for p in providers]
     if providers:
         lines += ["", "В CryptoBot и xRocket можно оплатить криптовалютой (USDT, TON и др.)."]
@@ -76,8 +82,8 @@ async def buy(call: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("pay:st:"))
-async def pay_stars(call: CallbackQuery, bot: Bot) -> None:
-    ok = await send_stars_invoice(bot, call.from_user.id, call.data.split(":", 2)[2])
+async def pay_stars(call: CallbackQuery, bot: Bot, user: User) -> None:
+    ok = await send_stars_invoice(bot, call.from_user.id, call.data.split(":", 2)[2], user)
     await call.answer("💳 Счёт на оплату отправлен ниже" if ok else "Товар не найден", show_alert=not ok)
 
 
@@ -113,8 +119,8 @@ async def pay_crypto(call: CallbackQuery, session: AsyncSession, user: User) -> 
 
 
 @payments_router.pre_checkout_query()
-async def pre_checkout(query: PreCheckoutQuery) -> None:
-    if validate_pre_checkout(query.invoice_payload, query.total_amount, query.currency):
+async def pre_checkout(query: PreCheckoutQuery, user: User) -> None:
+    if validate_pre_checkout(query.invoice_payload, query.total_amount, query.currency, user):
         await query.answer(ok=True)
     else:
         await query.answer(ok=False, error_message="Товар недоступен. Попробуйте оформить покупку заново.")

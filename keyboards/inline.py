@@ -124,12 +124,28 @@ def shop_kb() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def premium_plans_kb() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
+def _plan_buttons(kb: InlineKeyboardBuilder, prices: dict[str, int] | None, pct: int) -> None:
+    """prices — цены со скидкой по ключам тарифов (None — обычные цены)."""
     for key, (days, price) in PREMIUM_PLANS.items():
-        kb.button(text=f"💎 {days} дн. — {price} ⭐️", callback_data=f"buy:{key}")
+        price = prices[key] if prices else price
+        mark = f" (−{pct}%)" if pct else ""
+        kb.button(text=f"💎 {days} дн. — {price} ⭐️{mark}", callback_data=f"buy:{key}")
+
+
+def premium_plans_kb(prices: dict[str, int] | None = None, pct: int = 0) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    _plan_buttons(kb, prices, pct)
     _back(kb, "menu:shop", "🔙 В магазин")
-    kb.adjust(2, 2, 1)
+    kb.adjust(1 if pct else 2, 1 if pct else 2, 1, 1, 1)
+    return kb.as_markup()
+
+
+def renew_kb(prices: dict[str, int] | None = None, pct: int = 0) -> InlineKeyboardMarkup:
+    """Продление Premium из напоминания и из сообщения об окончании."""
+    kb = InlineKeyboardBuilder()
+    _plan_buttons(kb, prices, pct)
+    _back(kb, "menu:main", "🏠 Главное меню")
+    kb.adjust(1 if pct else 2, 1 if pct else 2, 1, 1, 1)
     return kb.as_markup()
 
 

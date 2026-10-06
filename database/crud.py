@@ -132,8 +132,49 @@ async def add_premium_days(session: AsyncSession, user: User, days: int) -> date
     base = user.premium_until if premium_active(user) else now
     user.premium_until = base + timedelta(days=days)
     user.is_premium = True
+    user.premium_extended_at = now
     await session.commit()
     return user.premium_until
+
+
+REMIND_BEFORE = timedelta(hours=24)
+
+
+async def premium_reminder_due(session: AsyncSession) -> list[User]:
+    """Пользователи, которым пора напомнить о скором окончании Premium (по одному разу на срок).
+
+    Напоминаем за сутки, а при коротком сроке — в последней четверти (купил на 1 день → за 6 ч),
+    чтобы напоминание не пришло сразу после покупки.
+    """
+    now = utcnow()
+    rows = (
+        await session.scalars(
+            select(User).where(
+                User.is_premium.is_(True),
+                User.premium_until > now + timedelta(minutes=10),
+                User.premium_until <= now + REMIND_BEFORE,
+                User.is_banned.is_(False),
+                User.is_blocked_bot.is_(False),
+            )
+        )
+    ).all()
+    due = []
+    for u in rows:
+        if u.premium_notified_for == u.premium_until:
+            continue
+        period = u.premium_until - u.premium_extended_at if u.premium_extended_at else REMIND_BEFORE * 4
+        if u.premium_until - now <= min(REMIND_BEFORE, period / 4):
+            due.append(u)
+    return due
+
+
+async def mark_premium_reminded(session: AsyncSession, user: User, discount_pct: int) -> None:
+    """Запоминает напоминание и выдаёт скидку на продление — до суток после окончания Premium."""
+    user.premium_notified_for = user.premium_until
+    if discount_pct > 0:
+        user.discount_pct = discount_pct
+        user.discount_until = user.premium_until + timedelta(hours=24)
+    await session.commit()
 
 
 async def remove_premium(session: AsyncSession, user: User) -> None:

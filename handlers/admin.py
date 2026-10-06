@@ -55,6 +55,7 @@ SETTING_LABELS = {
     "sponsor_bonus": "Бонус за подписку на спонсоров",
     "search_cooldown_sec": "Задержка между поисками (сек)",
     "support_url": "Ссылка на поддержку",
+    "renew_discount_pct": "Скидка на продление Premium (%, 0 — выкл.)",
 }
 
 
@@ -843,6 +844,9 @@ async def adm_set_value(message: Message, session: AsyncSession, state: FSMConte
     value = message.text.strip()
     if key != "support_url" and not value.isdigit():
         await message.answer("⚠️ Нужно целое неотрицательное число:")
+        return
+    if key == "renew_discount_pct" and int(value) > 90:
+        await message.answer("⚠️ Скидка — от 0 до 90%:")
         return
     if key == "support_url" and not value.startswith(("http://", "https://", "tg://")):
         await message.answer("⚠️ Ссылка должна начинаться с https://")
