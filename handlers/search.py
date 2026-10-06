@@ -528,7 +528,7 @@ async def _traps_screen(session: AsyncSession, user: User):
         text += "У вас пока нет активных ловушек.\n\nДобавьте занятый ник — бот сообщит, как только он освободится."
     limit = _trap_limit(user)
     text += f"\n\nЛимит: {len(traps)}/{limit}" if limit is not None else f"\n\nЛовушек: {len(traps)} (без лимита)"
-    return text, inline.traps_kb(traps[:TRAPS_SHOWN])
+    return text, inline.traps_kb(traps[:TRAPS_SHOWN]), "trap"
 
 
 @router.callback_query(F.data == "s:trap")

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     SNIPER_INTERVAL: int = 120
     HTTP_PROXY: str = ""
 
+    # Баннеры разделов (assets/banners/*.jpg); пусто — без баннеров
+    BANNERS_URL: str = "https://raw.githubusercontent.com/server12111/autocreateusername/main/assets/banners"
+
     # Оплата в долларах: Crypto Pay API (@CryptoBot) и xRocket Pay API
     CRYPTOBOT_TOKEN: str = ""
     XROCKET_TOKEN: str = ""

@@ -41,13 +41,13 @@ async def shop_premium(call: CallbackQuery, user: User) -> None:
     await call.answer()
     prices, pct = plan_prices(user)
     text = PREMIUM_TEXT + (f"\n\n{discount_line(user)}" if pct else "")
-    await safe_edit(call, text, inline.premium_plans_kb(prices, pct))
+    await safe_edit(call, text, inline.premium_plans_kb(prices, pct), "premium")
 
 
 @router.callback_query(F.data == "shop:packs")
 async def shop_packs(call: CallbackQuery) -> None:
     await call.answer()
-    await safe_edit(call, PACKS_TEXT, inline.packs_kb())
+    await safe_edit(call, PACKS_TEXT, inline.packs_kb(), "packs")
 
 
 def _back_for(key: str) -> str:

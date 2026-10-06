@@ -10,9 +10,11 @@ from config import REF_TIERS
 from database import crud
 from database.models import User, msk, utcnow
 from keyboards import inline
+from services.banners import preview
 from texts import MAIN_MENU_TEXT, PROFILE_TEXT, REF_TEXT, SEARCH_TEXT, SHARE_TEXT, SHOP_TEXT
 
-Screen = tuple[str, InlineKeyboardMarkup]
+# (текст, клавиатура, баннер) — баннер из services/banners.py или None; админские экраны — без баннера
+Screen = tuple[str, InlineKeyboardMarkup, str | None]
 
 BATTLE_POOL = [
     "crypto", "cyber", "nova", "pixel", "ghost", "alpha", "omega", "royal", "storm", "lunar",
@@ -22,29 +24,32 @@ BATTLE_POOL = [
 ]
 
 
-async def safe_edit(event: CallbackQuery | Message, text: str, kb: InlineKeyboardMarkup | None = None) -> None:
-    """Редактирует сообщение колбэка, а при невозможности — отправляет новое."""
+async def safe_edit(
+    event: CallbackQuery | Message, text: str, kb: InlineKeyboardMarkup | None = None, banner: str | None = None
+) -> None:
+    """Редактирует сообщение колбэка, а при невозможности — отправляет новое. banner — баннер раздела над текстом."""
+    lp = preview(banner)
     if isinstance(event, CallbackQuery):
         try:
-            await event.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+            await event.message.edit_text(text, reply_markup=kb, link_preview_options=lp)
             return
         except Exception as e:
             if "message is not modified" in str(e):
                 return
-        await event.message.answer(text, reply_markup=kb, disable_web_page_preview=True)
+        await event.message.answer(text, reply_markup=kb, link_preview_options=lp)
     else:
-        await event.answer(text, reply_markup=kb, disable_web_page_preview=True)
+        await event.answer(text, reply_markup=kb, link_preview_options=lp)
 
 
-async def send_screen(message: Message, screen: Screen) -> None:
-    text, kb = screen
-    await message.answer(text, reply_markup=kb, disable_web_page_preview=True)
+async def send_screen(message: Message, screen: tuple) -> None:
+    text, kb, *rest = screen
+    await message.answer(text, reply_markup=kb, link_preview_options=preview(rest[0] if rest else None))
 
 
 async def build_main(session: AsyncSession, user: User, bot: Bot) -> Screen:
     support = await crud.get_setting(session, "support_url")
     battle = await crud.get_setting(session, "battle_enabled") == "1"
-    return MAIN_MENU_TEXT, inline.main_menu_kb(support, battle)
+    return MAIN_MENU_TEXT, inline.main_menu_kb(support, battle), "main"
 
 
 def cooldown_left(user: User, cooldown: int) -> int:
@@ -71,7 +76,7 @@ async def build_search(session: AsyncSession, user: User, bot: Bot) -> Screen:
     bonus = 0
     if not premium and not user.sponsor_bonus_claimed:
         bonus = await crud.get_setting_int(session, "sponsor_bonus")
-    return text, inline.search_kb(bonus)
+    return text, inline.search_kb(bonus), "search"
 
 
 async def premium_limit_phrase(session: AsyncSession) -> str:
@@ -81,7 +86,7 @@ async def premium_limit_phrase(session: AsyncSession) -> str:
 
 
 async def build_shop(session: AsyncSession, user: User, bot: Bot) -> Screen:
-    return SHOP_TEXT.format(limit=await premium_limit_phrase(session)), inline.shop_kb()
+    return SHOP_TEXT.format(limit=await premium_limit_phrase(session)), inline.shop_kb(), "premium"
 
 
 async def build_profile(session: AsyncSession, user: User, bot: Bot) -> Screen:
@@ -100,7 +105,7 @@ async def build_profile(session: AsyncSession, user: User, bot: Bot) -> Screen:
         free_left=free_left,
         paid_left=user.paid_searches_left,
     )
-    return text, inline.profile_kb()
+    return text, inline.profile_kb(), "profile"
 
 
 def ref_link(bot_username: str, user_id: int) -> str:
@@ -127,7 +132,7 @@ async def build_ref(session: AsyncSession, user: User, bot: Bot) -> Screen:
         link=link, ref_count=count, current_tier=current,
         t1=marks[0], t2=marks[1], t3=marks[2], t4=marks[3], progress=progress,
     )
-    return text, inline.ref_kb(link, SHARE_TEXT)
+    return text, inline.ref_kb(link, SHARE_TEXT), "ref"
 
 
 async def build_battle(session: AsyncSession, user: User, bot: Bot) -> Screen:
@@ -140,4 +145,4 @@ async def build_battle(session: AsyncSession, user: User, bot: Bot) -> Screen:
         f"🔴 <b>@{a}</b>\n        vs\n🔵 <b>@{b}</b>\n\n"
         "Проголосуйте кнопкой ниже 👇"
     )
-    return text, inline.battle_kb(i, j, a, b)
+    return text, inline.battle_kb(i, j, a, b), "battle"

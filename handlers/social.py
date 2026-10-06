@@ -54,7 +54,7 @@ def _menu_kb():
 async def social_menu(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(None)
     await call.answer()
-    await safe_edit(call, SOCIAL_TEXT, _menu_kb())
+    await safe_edit(call, SOCIAL_TEXT, _menu_kb(), "social")
 
 
 # ───────────────────────── Проверка ника ─────────────────────────
