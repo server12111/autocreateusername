@@ -193,7 +193,9 @@ async def main() -> None:
     log.info("Бот @%s запущен. MTProto-аккаунтов: %d", me.username, pool.size)
 
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
+        # Не выбрасываем накопившиеся обновления: среди них может быть successful_payment оплаты Stars,
+        # подтверждённой прямо перед перезапуском, — Telegram повторно её не пришлёт
+        await bot.delete_webhook(drop_pending_updates=False)
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         scheduler.shutdown(wait=False)
