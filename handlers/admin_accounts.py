@@ -62,7 +62,10 @@ def _accounts_screen(pool: MTProtoPool):
     stats = pool.stats()
     if stats:
         for st in stats:
-            status = "🟢 готов" if not st["flood_left"] else f"⏳ FloodWait {st['flood_left']} сек"
+            if st["frozen"]:
+                status = "🧊 заморожен Telegram — проверять ники не может"
+            else:
+                status = "🟢 готов" if not st["flood_left"] else f"⏳ FloodWait {st['flood_left']} сек"
             text += (
                 f"• <code>{html.escape(st['name'])}</code> — {status}\n"
                 f"   за час: {st['hour']}/{pool.hour_limit} · FloodWait за сутки: {st['floods_24h']} · "

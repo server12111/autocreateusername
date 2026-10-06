@@ -10,6 +10,7 @@ from telethon.errors import (
     AuthKeyDuplicatedError,
     AuthKeyUnregisteredError,
     FloodWaitError,
+    FrozenMethodInvalidError,
     SessionExpiredError,
     SessionRevokedError,
     UserDeactivatedBanError,
@@ -53,6 +54,7 @@ class _Worker:
         self.hour_count = 0
         self.floods: deque[float] = deque()  # моменты FloodWait за последние сутки
         self.total = 0
+        self.frozen = False  # заморожен Telegram (FROZEN_METHOD_INVALID)
 
     @property
     def ready(self) -> bool:
@@ -156,6 +158,7 @@ class MTProtoPool:
 
     BACKGROUND_SHARE = 0.6  # фоновым задачам (запас ников) — не больше 60% часового лимита аккаунта
     MAX_SLOW = 8.0  # максимум замедления после серии FloodWait
+    FROZEN_PAUSE = 6 * 3600  # замороженный аккаунт перепробуем раз в 6 часов (вдруг заморозку сняли)
 
     def __init__(self, sessions_dir: str, api_id: int, api_hash: str):
         self.sessions_dir = sessions_dir
@@ -300,6 +303,7 @@ class MTProtoPool:
                 "hour": w.used_this_hour(),
                 "floods_24h": w.floods_24h(),
                 "interval": round(self.interval * w.slow, 1),
+                "frozen": w.frozen,
             }
             for w in self.workers
         ]
@@ -363,6 +367,14 @@ class MTProtoPool:
                     log.info("MTProto: %s во FloodWait на %d сек, темп замедлен до %.1f сек",
                              worker.name, e.seconds, self.interval * worker.slow)
                     continue
+                except FrozenMethodInvalidError:
+                    # Аккаунт заморожен Telegram за нарушения: почти все запросы, включая проверку ников,
+                    # недоступны. Не удаляем (заморозку могут снять), но надолго убираем из работы
+                    worker.frozen = True
+                    worker.busy_until = time.time() + self.FROZEN_PAUSE
+                    log.warning("MTProto: аккаунт %s заморожен Telegram — пауза %d ч",
+                                worker.name, self.FROZEN_PAUSE // 3600)
+                    continue
                 except DEAD_SESSION_ERRORS as e:
                     # Аккаунт разлогинен, удалён или забанен — больше он не заработает
                     log.warning("MTProto: аккаунт %s отключён (%s) — удалён из пула и базы",
@@ -376,5 +388,6 @@ class MTProtoPool:
                 await self.remove(worker.name)
                 continue
             worker.slow = max(1.0, worker.slow * 0.95)  # удачный запрос — понемногу возвращаем обычный темп
+            worker.frozen = False  # заморозку сняли — аккаунт снова в строю
             return {"available": status == "free", "status": status}
         return {"available": False, "status": "no_clients"}
