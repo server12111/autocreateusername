@@ -302,6 +302,7 @@ async def recently_checked_by_user(session: AsyncSession, user_id: int, since_ho
 
 
 async def add_trap(session: AsyncSession, user_id: int, username: str, networks: str = "tg") -> NicknameTrap | None:
+    """Новая ловушка. None — на этот ник уже есть активная и в ней уже есть все эти сети."""
     exists = await session.scalar(
         select(NicknameTrap).where(
             NicknameTrap.user_id == user_id,
@@ -310,7 +311,15 @@ async def add_trap(session: AsyncSession, user_id: int, username: str, networks:
         )
     )
     if exists:
-        return None
+        # Дополняем сети существующей ловушки, а не заводим вторую на тот же ник
+        old = [n for n in (exists.networks or "tg").split(",") if n]
+        new = [n for n in networks.split(",") if n]
+        added = [n for n in new if n not in old]
+        if not added:
+            return None
+        exists.networks = ",".join(old + added)
+        await session.commit()
+        return exists
     trap = NicknameTrap(user_id=user_id, target_username=username, networks=networks)
     session.add(trap)
     await session.commit()

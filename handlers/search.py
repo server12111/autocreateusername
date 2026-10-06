@@ -590,20 +590,22 @@ async def trap_confirm(call: CallbackQuery, session: AsyncSession, user: User, s
     if not selected:
         await call.answer("Отметьте хотя бы одну сеть", show_alert=True)
         return
-    if await _trap_limit_reached(call, session, user):
+    # Дополнение сетей в уже существующей ловушке лимит не тратит
+    existing = any(t.target_username.lower() == name.lower() for t in await crud.get_user_traps(session, user.tg_id))
+    if not existing and await _trap_limit_reached(call, session, user):
         return
     order = [c for c in social_checker.ALL if c in selected]
     trap = await crud.add_trap(session, user.tg_id, name, ",".join(order))
     await state.update_data(trap_name=None)
-    where = ", ".join(f"{social_checker.icon(c)} {social_checker.ALL[c].title}" for c in order)
     if trap:
+        where = ", ".join(f"{social_checker.icon(c)} {social_checker.ALL[c].title}" for c in trap_networks(trap))
         text = (
             f"✅ Ловушка на <b>@{name}</b> установлена!\n\n"
             f"Ловим в: {where}\n\n"
             "Как только ник освободится — вы получите мгновенное уведомление 🚨"
         )
     else:
-        text = f"ℹ️ Ловушка на <b>@{name}</b> уже активна. Чтобы поменять сети — удалите её и поставьте заново."
+        text = f"ℹ️ Ловушка на <b>@{name}</b> уже ловит ник во всех выбранных сетях."
     await call.answer()
     await safe_edit(call, text, inline.back_kb("s:trap", "🪤 Мои ловушки"))
 
@@ -613,8 +615,11 @@ async def network_statuses(checker: UsernameChecker, name: str) -> dict[str, tup
     async def telegram() -> tuple[str, str]:
         if not is_valid_username(name):
             return "invalid", social_checker.STATUS_MARK["invalid"]
-        res = await checker.check(name)
-        status = {"free": "free", "unknown": "unknown", "invalid": "invalid"}.get(res.status, "taken")
+        with activity.user_search():  # фоновый поиск запаса ников на это время на паузе
+            res = await checker.check(name)
+        # Зарезервирован Telegram или продан/продаётся на Fragment — сам по себе не освободится,
+        # ловить его бессмысленно; ловим только ники, занятые аккаунтом, каналом или ботом
+        status = {"free": "free", "unknown": "unknown", "invalid": "invalid", "taken": "taken"}.get(res.status, "reserved")
         label = STATUS_TEXT.get(res.status, res.status)
         if res.fragment_price:
             label += f" ({res.fragment_price} TON)"

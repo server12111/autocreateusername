@@ -77,9 +77,25 @@ async def social_check_input(message: Message, user: User, state: FSMContext, ch
     if left > 0:
         await message.answer(f"⏱ Подождите {math.ceil(left)} сек. и отправьте ник ещё раз.")
         return
-    _last_check[user.tg_id] = time.monotonic()
+    await _social_report(message, user, state, checker, name)
 
-    wait = await message.answer(f"⏳ Проверяю @{name} в Telegram и соцсетях…")
+
+@router.callback_query(F.data.startswith("soc:of:"))
+async def social_of_found(call: CallbackQuery, user: User, state: FSMContext, checker: UsernameChecker) -> None:
+    """Кнопка «🌐 Соцсети» под найденным ником: где ещё он свободен."""
+    name = call.data.split(":", 2)[2]
+    left = CHECK_COOLDOWN - (time.monotonic() - _last_check.get(user.tg_id, 0))
+    if left > 0:
+        await call.answer(f"⏱ Подождите {math.ceil(left)} сек.", show_alert=True)
+        return
+    await call.answer()
+    await _social_report(call.message, user, state, checker, name)
+
+
+async def _social_report(target: Message, user: User, state: FSMContext, checker: UsernameChecker, name: str) -> None:
+    """Проверяет ник во всех сетях и отправляет отчёт новым сообщением."""
+    _last_check[user.tg_id] = time.monotonic()
+    wait = await target.answer(f"⏳ Проверяю @{name} в Telegram и соцсетях…")
     statuses = await network_statuses(checker, name)
     catchable = [code for code, (st, _) in statuses.items() if st in ("taken", "unknown")]
     text = f"🌐 <b>@{name}</b>\n\n{format_statuses(name, statuses)}"
