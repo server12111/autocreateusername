@@ -2,6 +2,7 @@ import asyncio
 import html
 import json
 import logging
+import math
 import re
 import time
 from datetime import timedelta
@@ -133,6 +134,20 @@ async def adm_stats(call: CallbackQuery, session: AsyncSession, pool: MTProtoPoo
     await safe_edit(call, text, _kb(("🔄 Обновить", "adm:stats"), ("🩺 Проверка сервисов", "adm:health"), BACK))
 
 
+def _resolver_reason(checker: UsernameChecker) -> str:
+    """Почему проверка через бота не сработала: FloodWait или ошибка."""
+    resolver = checker.resolver
+    if not resolver or not resolver.enabled:
+        return ""
+    if resolver.flood_left:
+        minutes = math.ceil(resolver.flood_left / 60)
+        return (f"    ↳ Telegram временно ограничил бота (FloodWait) — ещё ~{minutes} мин. "
+                "Не страшно: ники проверяются через аккаунты пула\n")
+    if resolver.last_error:
+        return f"    ↳ <code>{html.escape(resolver.last_error)}</code>\n"
+    return ""
+
+
 @router.callback_query(F.data == "adm:health")
 async def adm_health(call: CallbackQuery, checker: UsernameChecker, pool: MTProtoPool, name_pool: FreeNamePool) -> None:
     """Как сервер видит сервисы проверки ников: скорость и ответы t.me, Fragment и Telegram."""
@@ -171,6 +186,7 @@ async def adm_health(call: CallbackQuery, checker: UsernameChecker, pool: MTProt
         f"{mark(tme is True)} t.me: {'отвечает' if tme is True else html.escape(str(tme))} — {t1:.1f} сек\n"
         f"{mark(frag_status == 'taken')} Fragment: {html.escape(str(frag_status))} — {t2:.1f} сек\n"
         f"{mark(res == 'occupied')} Проверка через Telegram: {html.escape(str(res))} — {t3:.1f} сек\n"
+        f"{_resolver_reason(checker) if res != 'occupied' else ''}"
         f"{social_lines}"
         f"🤖 Аккаунтов в пуле: {pool.alive}/{pool.size}\n"
         f"📦 Запас готовых ников: 5 букв — {stock.get(5, 0)}, 6 букв — {stock.get(6, 0)}\n\n"

@@ -65,6 +65,12 @@ class BotResolver:
         self.busy_until = 0.0
         self.lock = asyncio.Lock()
         self.last_call = 0.0
+        self.last_error = ""  # для диагностики в админке
+
+    @property
+    def flood_left(self) -> int:
+        """Сколько секунд ещё длится FloodWait (0 — нет)."""
+        return max(0, int(self.busy_until - time.time()))
 
     MIN_INTERVAL = 0.4  # пауза между запросами, чтобы не ловить FloodWait
     MAX_WAIT = 20  # короткий FloodWait пережидаем, длинный — отдаём «unavailable»
@@ -119,6 +125,7 @@ class BotResolver:
                     self.busy_until = time.time() + e.seconds + 1
                     log.info("MTProto-бот во FloodWait на %d сек", e.seconds)
                 except Exception as e:
+                    self.last_error = f"{type(e).__name__}: {e}"[:200]
                     log.debug("MTProto-бот: ошибка resolve %s: %s", username, e)
                     return "unavailable"
         return "unavailable"
