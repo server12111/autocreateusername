@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import os
+import random
 import time
+from collections import deque
 
 from telethon import TelegramClient
 from telethon.errors import (
@@ -38,15 +40,33 @@ DEAD_SESSION_ERRORS = (
 
 
 class _Worker:
+    """Аккаунт пула со своим темпом: не чаще раза в interval × slow секунд и не больше hour_limit в час."""
+
     def __init__(self, name: str, client: TelegramClient):
         self.name = name
         self.client = client
         self.busy_until = 0.0  # unix time, до которого аккаунт во FloodWait
         self.lock = asyncio.Lock()
+        self.next_at = 0.0  # раньше этого момента аккаунт следующий запрос не делает (темп + брони)
+        self.slow = 1.0  # множитель темпа: после FloodWait растёт, после удачных запросов плавно падает
+        self.hour_start = time.time()
+        self.hour_count = 0
+        self.floods: deque[float] = deque()  # моменты FloodWait за последние сутки
+        self.total = 0
 
     @property
     def ready(self) -> bool:
         return time.time() >= self.busy_until
+
+    def used_this_hour(self) -> int:
+        if time.time() - self.hour_start >= 3600:
+            self.hour_start, self.hour_count = time.time(), 0
+        return self.hour_count
+
+    def floods_24h(self) -> int:
+        while self.floods and time.time() - self.floods[0] > 86400:
+            self.floods.popleft()
+        return len(self.floods)
 
 
 class BotResolver:
@@ -72,7 +92,7 @@ class BotResolver:
         """Сколько секунд ещё длится FloodWait (0 — нет)."""
         return max(0, int(self.busy_until - time.time()))
 
-    MIN_INTERVAL = 0.4  # пауза между запросами, чтобы не ловить FloodWait
+    MIN_INTERVAL = 1.0  # пауза между запросами бота: у ботов лимит на resolveUsername особенно жёсткий
     MAX_WAIT = 20  # короткий FloodWait пережидаем, длинный — отдаём «unavailable»
 
     @property
@@ -132,14 +152,18 @@ class BotResolver:
 
 
 class MTProtoPool:
-    """Пул Telethon-аккаунтов с ротацией и обходом FloodWait."""
+    """Пул Telethon-аккаунтов с бережным темпом запросов, часовым лимитом и обходом FloodWait."""
+
+    BACKGROUND_SHARE = 0.6  # фоновым задачам (запас ников) — не больше 60% часового лимита аккаунта
+    MAX_SLOW = 8.0  # максимум замедления после серии FloodWait
 
     def __init__(self, sessions_dir: str, api_id: int, api_hash: str):
         self.sessions_dir = sessions_dir
         self.api_id = api_id
         self.api_hash = api_hash
         self.workers: list[_Worker] = []
-        self._rr = 0
+        self.interval = 2.0  # сек между запросами одного аккаунта (настройка acc_interval_sec)
+        self.hour_limit = 300  # запросов в час на аккаунт (настройка acc_hour_limit)
 
     @property
     def size(self) -> int:
@@ -148,6 +172,14 @@ class MTProtoPool:
     @property
     def alive(self) -> int:
         return sum(1 for w in self.workers if w.ready)
+
+    def _quota(self, background: bool) -> float:
+        return self.hour_limit * (self.BACKGROUND_SHARE if background else 1.0)
+
+    def has_capacity(self, background: bool = False) -> bool:
+        """Есть ли аккаунт, готовый принять запрос (не во FloodWait и не исчерпал свою долю лимита)."""
+        quota = self._quota(background)
+        return any(w.ready and w.used_this_hour() < quota for w in self.workers)
 
     async def init_pool(self) -> None:
         if not self.api_id or not self.api_hash:
@@ -258,6 +290,20 @@ class MTProtoPool:
         now = time.time()
         return [(w.name, w.ready, max(0, int(w.busy_until - now))) for w in self.workers]
 
+    def stats(self) -> list[dict]:
+        """Нагрузка аккаунтов для админки."""
+        now = time.time()
+        return [
+            {
+                "name": w.name,
+                "flood_left": max(0, int(w.busy_until - now)),
+                "hour": w.used_this_hour(),
+                "floods_24h": w.floods_24h(),
+                "interval": round(self.interval * w.slow, 1),
+            }
+            for w in self.workers
+        ]
+
     async def close(self) -> None:
         for w in self.workers:
             try:
@@ -265,45 +311,70 @@ class MTProtoPool:
             except Exception:
                 pass
 
-    def _next_worker(self) -> _Worker | None:
-        n = len(self.workers)
-        for i in range(n):
-            w = self.workers[(self._rr + i) % n]
-            if w.ready:
-                self._rr = (self._rr + i + 1) % n
-                return w
-        return None
+    def _pick(self, background: bool) -> tuple[_Worker, float] | None:
+        """Аккаунт, который раньше всех сможет сделать запрос, и забронированное на нём время.
 
-    async def check_username(self, username: str) -> dict:
+        Бронь сразу сдвигает очередь аккаунта, поэтому одновременные запросы расходятся по разным
+        аккаунтам, а не выстраиваются к первому. Бронь сразу учитывается и в часовом лимите.
+        """
+        quota = self._quota(background)
+        candidates = [w for w in self.workers if w.ready and w.used_this_hour() < quota]
+        if not candidates:
+            return None
+        now = time.time()
+        worker = min(candidates, key=lambda w: max(w.next_at, now))
+        slot = max(worker.next_at, now)
+        # Темп со случайным разбросом, чтобы запросы не шли ровной «машинной» сеткой
+        worker.next_at = slot + self.interval * worker.slow * random.uniform(0.85, 1.25)
+        worker.hour_count += 1
+        return worker, slot
+
+    async def check_username(self, username: str, background: bool = False) -> dict:
         """
         status: free | occupied | fragment_only | invalid | no_clients | error
+        background — фоновая задача: ей достаётся только BACKGROUND_SHARE часового лимита аккаунтов.
         """
         clean = username.lstrip("@")
         for _ in range(max(1, len(self.workers))):
-            worker = self._next_worker()
-            if not worker:
+            picked = self._pick(background)
+            if not picked:
                 return {"available": False, "status": "no_clients"}
-            try:
-                async with worker.lock:
+            worker, slot = picked
+            async with worker.lock:
+                if slot > time.time():
+                    await asyncio.sleep(slot - time.time())
+                if not worker.ready or worker not in self.workers:
+                    worker.hour_count = max(0, worker.hour_count - 1)  # бронь не использована
+                    continue  # пока ждали, аккаунт словил FloodWait или был удалён
+                worker.total += 1
+                try:
                     result = await worker.client(CheckUsernameRequest(username=clean))
-                return {"available": bool(result), "status": "free" if result else "occupied"}
-            except UsernameOccupiedError:
-                return {"available": False, "status": "occupied"}
-            except UsernamePurchaseAvailableError:
-                return {"available": False, "status": "fragment_only"}
-            except UsernameInvalidError:
-                return {"available": False, "status": "invalid"}
-            except FloodWaitError as e:
-                worker.busy_until = time.time() + e.seconds + 1
-                log.info("MTProto: %s во FloodWait на %d сек", worker.name, e.seconds)
-                continue
-            except DEAD_SESSION_ERRORS as e:
-                # Аккаунт разлогинен, удалён или забанен — больше он не заработает
-                log.warning("MTProto: аккаунт %s отключён (%s) — удалён из пула и базы", worker.name, type(e).__name__)
+                    status = "free" if result else "occupied"
+                except UsernameOccupiedError:
+                    status = "occupied"
+                except UsernamePurchaseAvailableError:
+                    status = "fragment_only"
+                except UsernameInvalidError:
+                    status = "invalid"
+                except FloodWaitError as e:
+                    worker.busy_until = time.time() + e.seconds + 1
+                    worker.slow = min(worker.slow * 2, self.MAX_SLOW)
+                    worker.floods.append(time.time())
+                    log.info("MTProto: %s во FloodWait на %d сек, темп замедлен до %.1f сек",
+                             worker.name, e.seconds, self.interval * worker.slow)
+                    continue
+                except DEAD_SESSION_ERRORS as e:
+                    # Аккаунт разлогинен, удалён или забанен — больше он не заработает
+                    log.warning("MTProto: аккаунт %s отключён (%s) — удалён из пула и базы",
+                                worker.name, type(e).__name__)
+                    status = "dead"
+                except Exception as e:
+                    log.warning("MTProto: ошибка %s на %s: %s", type(e).__name__, worker.name, e)
+                    worker.busy_until = time.time() + 30
+                    continue
+            if status == "dead":
                 await self.remove(worker.name)
                 continue
-            except Exception as e:
-                log.warning("MTProto: ошибка %s на %s: %s", type(e).__name__, worker.name, e)
-                worker.busy_until = time.time() + 30
-                continue
+            worker.slow = max(1.0, worker.slow * 0.95)  # удачный запрос — понемногу возвращаем обычный темп
+            return {"available": status == "free", "status": status}
         return {"available": False, "status": "no_clients"}

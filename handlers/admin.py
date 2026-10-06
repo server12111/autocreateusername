@@ -59,6 +59,10 @@ SETTING_LABELS = {
     "support_url": "Ссылка на поддержку",
     "renew_discount_pct": "Скидка на продление Premium (%, 0 — выкл.)",
     "premium_daily_limit": "Лимит Premium: юзернеймов в сутки (0 — без лимита)",
+    "acc_interval_sec": "Аккаунты: пауза между запросами (сек)",
+    "acc_hour_limit": "Аккаунты: запросов в час на аккаунт",
+    "pool_target_5": "Запас готовых ников: 5 букв",
+    "pool_target_6": "Запас готовых ников: 6 букв",
 }
 
 
@@ -882,6 +886,11 @@ async def adm_set_value(message: Message, session: AsyncSession, state: FSMConte
         return
     if key == "renew_discount_pct" and int(value) > 90:
         await message.answer("⚠️ Скидка — от 0 до 90%:")
+        return
+    limits = {"acc_interval_sec": (1, 60), "acc_hour_limit": (10, 5000), "pool_target_5": (0, 5000), "pool_target_6": (0, 5000)}
+    if key in limits and not limits[key][0] <= int(value) <= limits[key][1]:
+        low, high = limits[key]
+        await message.answer(f"⚠️ Нужно число от {low} до {high}:")
         return
     if key == "support_url" and not value.startswith(("http://", "https://", "tg://")):
         await message.answer("⚠️ Ссылка должна начинаться с https://")

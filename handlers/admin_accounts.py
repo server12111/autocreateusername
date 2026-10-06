@@ -58,13 +58,20 @@ def _cancel_kb():
 def _accounts_screen(pool: MTProtoPool):
     text = "🤖 <b>АККАУНТЫ ДЛЯ ПРОВЕРКИ</b>\n\n"
     kb = InlineKeyboardBuilder()
-    info = pool.info()
-    if info:
-        for name, ready, wait in info:
-            status = "🟢 готов" if ready else f"⏳ FloodWait {wait} сек"
-            text += f"• <code>{html.escape(name)}</code> — {status}\n"
-            kb.button(text=f"🗑 {name}"[:60], callback_data=f"adm:acc:del:{name}"[:64])
-        text += f"\nДоступно: <b>{pool.alive}/{pool.size}</b>"
+    stats = pool.stats()
+    if stats:
+        for st in stats:
+            status = "🟢 готов" if not st["flood_left"] else f"⏳ FloodWait {st['flood_left']} сек"
+            text += (
+                f"• <code>{html.escape(st['name'])}</code> — {status}\n"
+                f"   за час: {st['hour']}/{pool.hour_limit} · FloodWait за сутки: {st['floods_24h']} · "
+                f"темп: раз в {st['interval']} сек\n"
+            )
+            kb.button(text=f"🗑 {st['name']}"[:60], callback_data=f"adm:acc:del:{st['name']}"[:64])
+        text += (
+            f"\nДоступно: <b>{pool.alive}/{pool.size}</b>\n"
+            f"<i>Темп и лимит — в ⚙️ Настройках. Частые FloodWait — увеличьте паузу или добавьте аккаунты</i>"
+        )
     else:
         text += (
             "Аккаунтов нет — бот работает в резервном режиме (t.me + Fragment), "

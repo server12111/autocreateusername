@@ -261,7 +261,7 @@ async def _tick(msg: Message, wait_text: str) -> None:
     started = time.monotonic()
     try:
         while True:
-            await asyncio.sleep(5)
+            await asyncio.sleep(10)  # реже правим сообщение — меньше запросов к Telegram
             elapsed = int(time.monotonic() - started)
             try:
                 await msg.edit_text(f"{wait_text}\n\n⏱ Идёт поиск: {elapsed} сек")
@@ -642,7 +642,7 @@ async def network_statuses(checker: UsernameChecker, name: str) -> dict[str, tup
         if not is_valid_username(name):
             return "invalid", social_checker.STATUS_MARK["invalid"]
         with activity.user_search():  # фоновый поиск запаса ников на это время на паузе
-            res = await checker.check(name)
+            res = await checker.check(name, fresh=True)
         # Зарезервирован Telegram или продан/продаётся на Fragment — сам по себе не освободится,
         # ловить его бессмысленно; ловим только ники, занятые аккаунтом, каналом или ботом
         status = {"free": "free", "unknown": "unknown", "invalid": "invalid", "taken": "taken"}.get(res.status, "reserved")

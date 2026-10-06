@@ -99,6 +99,10 @@ DEFAULT_SETTINGS = {
     "captcha_enabled": "0",
     "renew_discount_pct": "20",
     "premium_daily_limit": "25",  # найденных юзернеймов в сутки (МСК) для Premium; 0 — без лимита
+    "acc_interval_sec": "2",  # пауза между запросами одного аккаунта пула (защита от FloodWait)
+    "acc_hour_limit": "300",  # запросов в час на аккаунт пула
+    "pool_target_5": "500",  # запас готовых 5-буквенных ников
+    "pool_target_6": "500",  # запас готовых 6-буквенных ников
     "premium_emoji": "{}",
     "premium_emoji_enabled": "1",
     "button_colors_enabled": "1",

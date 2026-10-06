@@ -36,6 +36,7 @@ from services.http import close_session
 from services.mtproto_pool import BotResolver, MTProtoPool
 from services.nickname_sniper import run_sniper_cycle
 from services.payment_service import discount_line, plan_prices, poll_crypto_invoices
+from services.tg_retry import RetryAfterMiddleware
 from services.ui_style import UiStyleMiddleware
 from services.username_checker import UsernameChecker
 
@@ -49,6 +50,17 @@ async def cleanup_db() -> None:
         "Чистка БД: удалено записей истории %d, старых ловушек %d, старых счетов %d",
         removed["history"], removed["traps"], removed["invoices"],
     )
+
+
+async def apply_limits(pool: MTProtoPool, name_pool: FreeNamePool) -> None:
+    """Темп и лимиты аккаунтов, размер запаса ников — из настроек админки (применяются раз в минуту)."""
+    async with session_maker() as session:
+        pool.interval = max(1, await crud.get_setting_int(session, "acc_interval_sec"))
+        pool.hour_limit = max(10, await crud.get_setting_int(session, "acc_hour_limit"))
+        name_pool.TARGET = {
+            5: max(0, await crud.get_setting_int(session, "pool_target_5")),
+            6: max(0, await crud.get_setting_int(session, "pool_target_6")),
+        }
 
 
 async def premium_expiry(bot: Bot) -> None:
@@ -113,6 +125,7 @@ async def main() -> None:
     checker = UsernameChecker(pool, resolver=resolver)
 
     bot = Bot(settings.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot.session.middleware(RetryAfterMiddleware())  # FloodWait Bot API: подождать и повторить
     bot.session.middleware(UiStyleMiddleware())
     checker.bot = bot
 
@@ -152,6 +165,8 @@ async def main() -> None:
 
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(cleanup_db, "cron", hour=0, minute=0)  # 00:00 UTC = 03:00 МСК
+    await apply_limits(pool, name_pool)
+    scheduler.add_job(apply_limits, "interval", seconds=60, args=[pool, name_pool])
     scheduler.add_job(premium_expiry, "interval", minutes=5, args=[bot])
     scheduler.add_job(
         poll_crypto_invoices, "interval", seconds=30, args=[bot], max_instances=1, coalesce=True,

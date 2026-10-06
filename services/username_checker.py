@@ -186,6 +186,7 @@ class UsernameChecker:
         self.resolver = resolver
         self.bot: Bot | None = None
         self.sem = asyncio.Semaphore(concurrency)
+        self._cache: dict[str, tuple[CheckResult, float]] = {}  # ник -> (результат, годен до monotonic)
 
     async def _tme_exists(self, username: str) -> bool | None:
         """Публичная страница t.me: есть заголовок -> ник занят. None — не удалось проверить."""
@@ -212,11 +213,30 @@ class UsernameChecker:
         except Exception:
             return False
 
-    async def check(self, username: str) -> CheckResult:
+    # Память проверок: один и тот же ник не гоняем через аккаунты снова и снова
+    CACHE_TAKEN_TTL = 1800  # занятый/недоступный ник — 30 мин
+    CACHE_FREE_TTL = 120  # свободный — 2 мин (его в любой момент могут занять)
+
+    async def check(self, username: str, fresh: bool = False, background: bool = False) -> CheckResult:
+        """fresh — не брать результат из памяти (ловушки, проверка конкретного ника, перепроверка запаса).
+        background — фоновая задача: тратит только свою долю лимита аккаунтов."""
         username = normalize(username)
         if not is_valid_username(username):
             return CheckResult(username, "invalid", False, False)
+        key = username.lower()
+        cached = self._cache.get(key)
+        if not fresh and cached and cached[1] > time.monotonic():
+            return cached[0]
+        res = await self._check(username, background)
+        if res.status != "unknown":
+            ttl = self.CACHE_FREE_TTL if res.is_free else self.CACHE_TAKEN_TTL
+            self._cache[key] = (res, time.monotonic() + ttl)
+            if len(self._cache) > 50_000:
+                now = time.monotonic()
+                self._cache = {k: v for k, v in self._cache.items() if v[1] > now}
+        return res
 
+    async def _check(self, username: str, background: bool) -> CheckResult:
         async with self.sem:
             # 1) Быстрый фильтр по t.me — экономит лимиты MTProto
             tme = await self._tme_exists(username)
@@ -234,26 +254,31 @@ class UsernameChecker:
                 }[frag["status"]]
                 return CheckResult(username, status, False, False, frag["price"])
 
-            # 3) MTProto под токеном бота: видит пользователей и зарезервированные ники
+            # 3) Аккаунты пула (account.checkUsername) — с их темпом и часовым лимитом
+            if self.pool.has_capacity(background):
+                mt = await self.pool.check_username(username, background)
+                st = mt["status"]
+                if st == "free":
+                    return CheckResult(username, "free", True, True)
+                if st == "occupied":
+                    return CheckResult(username, "taken", False, True)
+                if st == "fragment_only":
+                    return CheckResult(username, "fragment_sold", False, False)
+                if st == "invalid":
+                    return CheckResult(username, "invalid", False, True)
+            elif background and self.pool.size:
+                # Фону не хватило своей доли лимита — запасной канал (бота) не тратим, подождёт
+                return CheckResult(username, "unknown", False, False, source="bot")
+
+            # 4) Свободных аккаунтов нет — MTProto под токеном бота (у него свой, очень жёсткий лимит,
+            #    поэтому только как запасной вариант)
             resolved = await self.resolver.resolve(username) if self.resolver else "unavailable"
             if resolved == "occupied":
                 return CheckResult(username, "taken", False, True, source="bot")
             if resolved == "reserved":
                 return CheckResult(username, "reserved", False, True, source="bot")
 
-            # 4) Финальная проверка через аккаунты пула (account.checkUsername)
-            mt = await self.pool.check_username(username)
-            st = mt["status"]
-            if st == "free":
-                return CheckResult(username, "free", True, True)
-            if st == "occupied":
-                return CheckResult(username, "taken", False, True)
-            if st == "fragment_only":
-                return CheckResult(username, "fragment_sold", False, False)
-            if st == "invalid":
-                return CheckResult(username, "invalid", False, True)
-
-            # 5) Аккаунтов нет / все во флуде
+            # 5) Ни аккаунты, ни бот не ответили
             if resolved == "free" and frag["status"] != "error":
                 return CheckResult(username, "free", True, True, source="bot")
             if self.resolver and self.resolver.enabled:

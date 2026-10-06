@@ -5,8 +5,9 @@
 Как только пользователь запускает поиск, воркер встаёт на паузу, чтобы не отнимать
 лимиты проверок. При выдаче ник ещё раз проверяется — и только потом отдаётся.
 
-База не разрастается: в запасе не больше TARGET ников на длину (всего ~80 строк),
-выданные и занятые ники сразу удаляются.
+Размер запаса — настройки pool_target_5 / pool_target_6 в админке (по умолчанию 500 + 500 строк,
+для БД это мелочь). Выданные и занятые ники сразу удаляются. Фон тратит только свою долю лимита
+аккаунтов (MTProtoPool.BACKGROUND_SHARE), поэтому большой запас набирается постепенно.
 """
 
 import asyncio
@@ -48,15 +49,18 @@ activity = _Activity()
 
 
 class FreeNamePool:
-    TARGET = {5: 40, 6: 40}  # максимум ников в запасе для каждой длины
     QUIET_SEC = 15  # столько секунд без пользовательских поисков — бот «простаивает»
-    RECHECK_AFTER = timedelta(minutes=30)  # ник в запасе перепроверяется не реже, чем раз в 30 мин
+    # Ник в запасе перепроверяется раз в 6 часов: при большом запасе чаще — сожжёт лимиты аккаунтов,
+    # а перед выдачей ник всё равно проверяется заново
+    RECHECK_AFTER = timedelta(hours=6)
     BATCH = 3  # проверок за раз — небольшими порциями, чтобы быстро уступить место пользователю
     PAUSE = 1.5  # пауза между порциями, сек (бережём лимиты аккаунтов)
 
     def __init__(self, checker: UsernameChecker):
         self.checker = checker
         self._task: asyncio.Task | None = None
+        # Сколько ников держать в запасе для каждой длины; обновляется из настроек (bot.apply_limits)
+        self.TARGET = {5: 500, 6: 500}
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._run())
@@ -118,7 +122,7 @@ class FreeNamePool:
         for name in candidates:
             if name in exclude or not await self._claim(name):
                 continue
-            res = await self.checker.check(name)
+            res = await self.checker.check(name, fresh=True)
             if res.is_free:
                 return res
             if res.status == "unknown":
@@ -138,6 +142,11 @@ class FreeNamePool:
             try:
                 if not activity.idle(self.QUIET_SEC):
                     await asyncio.sleep(2)
+                    continue
+                pool = self.checker.pool
+                if pool.size and not pool.has_capacity(background=True):
+                    # Фоновая доля лимита аккаунтов на этот час исчерпана или все во FloodWait — ждём
+                    await asyncio.sleep(30)
                     continue
                 # Сначала перепроверка устаревших (её мало), иначе пока запас не полон — она бы не шла
                 if await self._recheck_step() or await self._refill_step():
@@ -168,7 +177,7 @@ class FreeNamePool:
             n = generate_nice(length)
             if is_valid_username(n) and n not in have:
                 names.add(n)
-        results = await asyncio.gather(*(self.checker.check(n) for n in names))
+        results = await asyncio.gather(*(self.checker.check(n, background=True) for n in names))
         free = [r.username for r in results if r.is_free]
         if free:
             await self._store(free[: self.TARGET[length] - stock.get(length, 0)])
@@ -193,7 +202,7 @@ class FreeNamePool:
             )
         if not stale:
             return False
-        results = await asyncio.gather(*(self.checker.check(n) for n in stale))
+        results = await asyncio.gather(*(self.checker.check(n, fresh=True, background=True) for n in stale))
         await self._touch([r.username for r in results if r.is_free or r.status == "unknown"])
         gone = [r.username for r in results if not r.is_free and r.status != "unknown"]
         if gone:

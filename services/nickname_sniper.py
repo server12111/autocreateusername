@@ -30,7 +30,7 @@ def trap_networks(trap) -> list[str]:
 async def _check(checker: UsernameChecker, net: str, name: str) -> bool:
     """True — ник точно свободен в сети. Сомнительные ответы (unknown) свободным не считаем."""
     if net == "tg":
-        return (await checker.check(name)).is_free
+        return (await checker.check(name, fresh=True)).is_free
     return await social_checker.check(net, name, use_cache=False) == "free"
 
 
