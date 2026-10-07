@@ -64,8 +64,9 @@ async def get_setting_int(session: AsyncSession, key: str) -> int:
 
 
 async def pop_forced_result(session: AsyncSession, user: User) -> str | None:
-    """Ник, который админ назначил пользователю на ближайший поиск (настройка forced_results —
-    JSON {"username или tg_id": "ник"}). Выдаётся один раз и без проверок. Читается из БД мимо кэша,
+    """Ник, который админ назначил пользователю (настройка forced_results — JSON
+    {"username или tg_id": "ник"} — на ближайший поиск, или {"...": {"nick": "ник", "always": true}} —
+    на каждый поиск, пока назначение не убрать). Выдаётся без проверок. Читается из БД мимо кэша,
     чтобы назначение работало без перезапуска бота."""
     row = await session.get(Setting, "forced_results")
     if not row or not row.value:
@@ -76,10 +77,15 @@ async def pop_forced_result(session: AsyncSession, user: User) -> str | None:
         return None
     for key in (str(user.tg_id), (user.username or "").lower()):
         if key and key in forced:
-            nick = str(forced.pop(key)).lstrip("@")
+            value = forced[key]
+            if isinstance(value, dict):
+                if value.get("always"):
+                    return str(value.get("nick", "")).lstrip("@") or None
+                value = value.get("nick", "")
+            forced.pop(key)
             row.value = json.dumps(forced)
             await session.commit()
-            return nick
+            return str(value).lstrip("@") or None
     return None
 
 
