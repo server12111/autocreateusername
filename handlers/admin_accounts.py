@@ -2,6 +2,7 @@
 
 import gc
 import html
+import math
 import os
 import re
 
@@ -64,8 +65,12 @@ def _accounts_screen(pool: MTProtoPool):
         for st in stats:
             if st["frozen"]:
                 status = "🧊 заморожен Telegram — проверять ники не может"
+            elif st["flood_left"]:
+                status = f"⏳ FloodWait {st['flood_left']} сек"
+            elif st["warmup_left"]:
+                status = f"🌱 новый, начнёт работу через {math.ceil(st['warmup_left'] / 60)} мин"
             else:
-                status = "🟢 готов" if not st["flood_left"] else f"⏳ FloodWait {st['flood_left']} сек"
+                status = "🟢 готов"
             text += (
                 f"• <code>{html.escape(st['name'])}</code> — {status}\n"
                 f"   за час: {st['hour']}/{pool.hour_limit} · FloodWait за сутки: {st['floods_24h']} · "
@@ -250,7 +255,8 @@ async def _finish_login(message: Message, pool: MTProtoPool, state: FSMContext) 
     await pool.add_client(client, data["file"])
     await state.clear()
     await message.answer(
-        f"✅ Аккаунт <b>{html.escape(me.first_name or '')}</b> ({data['phone']}) добавлен в пул",
+        f"✅ Аккаунт <b>{html.escape(me.first_name or '')}</b> ({data['phone']}) добавлен в пул\n"
+        "🌱 Начнёт проверять ники через час — так меньше риск ограничений",
         reply_markup=_accounts_screen(pool)[1],
     )
 
@@ -346,7 +352,8 @@ async def acc_upload_file(message: Message, bot: Bot, pool: MTProtoPool) -> None
     finally:
         _safe_remove(path)
     if ok:
-        await message.answer(f"✅ {html.escape(name)} добавлен: {html.escape(info)}\n\nМожно отправить ещё или вернуться:",
+        await message.answer(f"✅ {html.escape(name)} добавлен: {html.escape(info)}\n"
+                             "🌱 Начнёт проверять ники через час\n\nМожно отправить ещё или вернуться:",
                              reply_markup=_accounts_screen(pool)[1])
     else:
         await message.answer(f"❌ {html.escape(name)} не подключён: {html.escape(info)}", reply_markup=_cancel_kb())

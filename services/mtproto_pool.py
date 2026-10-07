@@ -4,6 +4,7 @@ import os
 import random
 import time
 from collections import deque
+from datetime import timezone
 
 from telethon import TelegramClient
 from telethon.errors import (
@@ -47,6 +48,7 @@ class _Worker:
         self.name = name
         self.client = client
         self.busy_until = 0.0  # unix time, до которого аккаунт во FloodWait
+        self.warmup_until = 0.0  # unix time, до которого новый аккаунт «отлёживается» после добавления
         self.lock = asyncio.Lock()
         self.next_at = 0.0  # раньше этого момента аккаунт следующий запрос не делает (темп + брони)
         self.slow = 1.0  # множитель темпа: после FloodWait растёт, после удачных запросов плавно падает
@@ -58,7 +60,7 @@ class _Worker:
 
     @property
     def ready(self) -> bool:
-        return time.time() >= self.busy_until
+        return time.time() >= max(self.busy_until, self.warmup_until)
 
     def used_this_hour(self) -> int:
         if time.time() - self.hour_start >= 3600:
@@ -159,6 +161,7 @@ class MTProtoPool:
     BACKGROUND_SHARE = 0.6  # фоновым задачам (запас ников) — не больше 60% часового лимита аккаунта
     MAX_SLOW = 8.0  # максимум замедления после серии FloodWait
     FROZEN_PAUSE = 6 * 3600  # замороженный аккаунт перепробуем раз в 6 часов (вдруг заморозку сняли)
+    WARMUP = 3600  # только что добавленный аккаунт час не проверяет ники: сразу после входа Telegram режет быстрее
 
     def __init__(self, sessions_dir: str, api_id: int, api_hash: str):
         self.sessions_dir = sessions_dir
@@ -190,13 +193,17 @@ class MTProtoPool:
             return
         await self._import_session_files()
         async with session_maker() as s:
-            accounts = [(a.name, a.session) for a in await crud.list_mtproto_accounts(s)]
-        for name, session_string in accounts:
+            accounts = [(a.name, a.session, a.created_at) for a in await crud.list_mtproto_accounts(s)]
+        for name, session_string, created_at in accounts:
             client = self._client(session_string)
             try:
                 await client.connect()
                 if await client.is_user_authorized():
-                    self.workers.append(_Worker(name, client))
+                    worker = _Worker(name, client)
+                    # Прогрев считается от добавления, поэтому перезапуск бота его не сбрасывает
+                    if created_at:
+                        worker.warmup_until = created_at.replace(tzinfo=timezone.utc).timestamp() + self.WARMUP
+                    self.workers.append(worker)
                     log.info("MTProto: аккаунт %s подключён", name)
                 else:
                     # Сессию отозвали — в админке такой аккаунт не виден, поэтому удаляем сами
@@ -250,7 +257,10 @@ class MTProtoPool:
         async with session_maker() as s:
             await crud.save_mtproto_account(s, name, StringSession.save(client.session))
         self.workers = [w for w in self.workers if w.name != name]
-        self.workers.append(_Worker(name, client))
+        worker = _Worker(name, client)
+        worker.warmup_until = time.time() + self.WARMUP
+        self.workers.append(worker)
+        log.info("MTProto: аккаунт %s добавлен — начнёт проверять ники через %d мин", name, self.WARMUP // 60)
 
     async def add_session_file(self, path: str, name: str) -> tuple[bool, str]:
         """Подключает загруженный .session: переводит в строку, проверяет и сохраняет в БД."""
@@ -295,7 +305,7 @@ class MTProtoPool:
     def info(self) -> list[tuple[str, bool, int]]:
         """[(файл, готов, секунд FloodWait осталось)]"""
         now = time.time()
-        return [(w.name, w.ready, max(0, int(w.busy_until - now))) for w in self.workers]
+        return [(w.name, w.ready, max(0, int(max(w.busy_until, w.warmup_until) - now))) for w in self.workers]
 
     def stats(self) -> list[dict]:
         """Нагрузка аккаунтов для админки."""
@@ -304,6 +314,7 @@ class MTProtoPool:
             {
                 "name": w.name,
                 "flood_left": max(0, int(w.busy_until - now)),
+                "warmup_left": max(0, int(w.warmup_until - now)),
                 "hour": w.used_this_hour(),
                 "floods_24h": w.floods_24h(),
                 "interval": round(self.interval * w.slow, 1),
