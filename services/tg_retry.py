@@ -6,7 +6,7 @@ import logging
 
 from aiogram import Bot
 from aiogram.client.session.middlewares.base import BaseRequestMiddleware, NextRequestMiddlewareType
-from aiogram.exceptions import TelegramRetryAfter
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.methods import AnswerCallbackQuery, TelegramMethod
 
 log = logging.getLogger(__name__)
@@ -26,3 +26,9 @@ class RetryAfterMiddleware(BaseRequestMiddleware):
                     raise
                 log.info("Bot API: FloodWait %d сек на %s — повтор", e.retry_after, type(method).__name__)
                 await asyncio.sleep(e.retry_after + 0.5)
+            except TelegramBadRequest as e:
+                # Нажатие обработано позже ~15 сек (перезапуск, нагрузка): ответить на него уже нельзя,
+                # но сам обработчик должен отработать, а не упасть на call.answer()
+                if isinstance(method, AnswerCallbackQuery) and "query is too old" in str(e):
+                    return True
+                raise
