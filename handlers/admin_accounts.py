@@ -154,7 +154,7 @@ async def acc_phone_input(message: Message, pool: MTProtoPool, state: FSMContext
         await message.answer("ℹ️ Этот аккаунт уже есть в пуле", reply_markup=_accounts_screen(pool)[1])
         return
     # Сессия в памяти: после входа pool.add_client сохранит её в БД, файл не нужен
-    client = TelegramClient(StringSession(), settings.API_ID, settings.API_HASH)
+    client = TelegramClient(StringSession(), settings.API_ID, settings.API_HASH, receive_updates=False)
     try:
         await client.connect()
         sent = await client.send_code_request(phone)

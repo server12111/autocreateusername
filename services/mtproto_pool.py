@@ -208,7 +208,11 @@ class MTProtoPool:
         log.info("MTProto-пул: %d аккаунтов", len(self.workers))
 
     def _client(self, session_string: str = "") -> TelegramClient:
-        return TelegramClient(StringSession(session_string), self.api_id, self.api_hash, flood_sleep_threshold=0)
+        # receive_updates=False: обновления чатов аккаунта не нужны (только проверка ников), а их приём
+        # и расшифровка нагружают цикл событий бота и тратят лимиты аккаунта на getDifference
+        return TelegramClient(
+            StringSession(session_string), self.api_id, self.api_hash, flood_sleep_threshold=0, receive_updates=False
+        )
 
     async def _import_session_files(self) -> None:
         """Переносит старые .session-файлы из sessions/ в БД (файлы не трогаем — на всякий случай)."""

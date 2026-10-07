@@ -31,7 +31,9 @@ if IS_SQLITE:
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL")
         cur.execute("PRAGMA synchronous=NORMAL")
-        cur.execute("PRAGMA busy_timeout=5000")
+        # 30 с: при наплыве пользователей очередь на запись бывает дольше 5 с (нагрузочный тест:
+        # 600 одновременных записей — с 5 с падало 267, с 30 с — ни одной)
+        cur.execute("PRAGMA busy_timeout=30000")
         cur.close()
 
 
