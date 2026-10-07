@@ -161,6 +161,10 @@ class MTProtoPool:
     BACKGROUND_SHARE = 0.6  # фоновым задачам (запас ников) — не больше 60% часового лимита аккаунта
     MAX_SLOW = 8.0  # максимум замедления после серии FloodWait
     FROZEN_PAUSE = 6 * 3600  # замороженный аккаунт перепробуем раз в 6 часов (вдруг заморозку сняли)
+    # Каждый пятый готовый аккаунт (минимум один, если готовы хотя бы два) не тратится на фоновый запас:
+    # он проверяет ники только для пользователей — в поиске и перед выдачей ника из запаса — и в своём темпе
+    RESERVED_EVERY = 5
+    RESERVED_INTERVAL = 1.0
     WARMUP = 3600  # только что добавленный аккаунт час не проверяет ники: сразу после входа Telegram режет быстрее
 
     def __init__(self, sessions_dir: str, api_id: int, api_hash: str):
@@ -182,10 +186,21 @@ class MTProtoPool:
     def _quota(self, background: bool) -> float:
         return self.hour_limit * (self.BACKGROUND_SHARE if background else 1.0)
 
+    def _reserved(self) -> list[_Worker]:
+        """Аккаунты, отданные только пользователям (выбираются среди готовых, по порядку добавления)."""
+        ready = [w for w in self.workers if w.ready]
+        if len(ready) < 2:
+            return []
+        return ready[: max(1, len(ready) // self.RESERVED_EVERY)]
+
+    def _candidates(self, background: bool) -> list[_Worker]:
+        quota = self._quota(background)
+        reserved = self._reserved() if background else []
+        return [w for w in self.workers if w.ready and w.used_this_hour() < quota and w not in reserved]
+
     def has_capacity(self, background: bool = False) -> bool:
         """Есть ли аккаунт, готовый принять запрос (не во FloodWait и не исчерпал свою долю лимита)."""
-        quota = self._quota(background)
-        return any(w.ready and w.used_this_hour() < quota for w in self.workers)
+        return bool(self._candidates(background))
 
     async def init_pool(self) -> None:
         if not self.api_id or not self.api_hash:
@@ -310,6 +325,7 @@ class MTProtoPool:
     def stats(self) -> list[dict]:
         """Нагрузка аккаунтов для админки."""
         now = time.time()
+        reserved = self._reserved()
         return [
             {
                 "name": w.name,
@@ -317,7 +333,8 @@ class MTProtoPool:
                 "warmup_left": max(0, int(w.warmup_until - now)),
                 "hour": w.used_this_hour(),
                 "floods_24h": w.floods_24h(),
-                "interval": round(self.interval * w.slow, 1),
+                "interval": round((min(self.interval, self.RESERVED_INTERVAL) if w in reserved else self.interval) * w.slow, 1),
+                "reserved": w in reserved,
                 "frozen": w.frozen,
             }
             for w in self.workers
@@ -336,15 +353,15 @@ class MTProtoPool:
         Бронь сразу сдвигает очередь аккаунта, поэтому одновременные запросы расходятся по разным
         аккаунтам, а не выстраиваются к первому. Бронь сразу учитывается и в часовом лимите.
         """
-        quota = self._quota(background)
-        candidates = [w for w in self.workers if w.ready and w.used_this_hour() < quota]
+        candidates = self._candidates(background)
         if not candidates:
             return None
         now = time.time()
         worker = min(candidates, key=lambda w: max(w.next_at, now))
         slot = max(worker.next_at, now)
+        interval = min(self.interval, self.RESERVED_INTERVAL) if worker in self._reserved() else self.interval
         # Темп со случайным разбросом, чтобы запросы не шли ровной «машинной» сеткой
-        worker.next_at = slot + self.interval * worker.slow * random.uniform(0.85, 1.25)
+        worker.next_at = slot + interval * worker.slow * random.uniform(0.85, 1.25)
         worker.hour_count += 1
         return worker, slot
 

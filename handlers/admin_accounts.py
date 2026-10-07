@@ -69,6 +69,8 @@ def _accounts_screen(pool: MTProtoPool):
                 status = f"⏳ FloodWait {st['flood_left']} сек"
             elif st["warmup_left"]:
                 status = f"🌱 новый, начнёт работу через {math.ceil(st['warmup_left'] / 60)} мин"
+            elif st["reserved"]:
+                status = "🎯 готов, только для выдачи пользователям"
             else:
                 status = "🟢 готов"
             text += (
