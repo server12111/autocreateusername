@@ -2,8 +2,10 @@
 
 Пока ботом никто не ищет, фоновый воркер ищет свободные 5- и 6-буквенные ники и складывает
 их в таблицу free_names, а в остальное свободное время перепроверяет старые запасы.
-Как только пользователь запускает поиск, воркер встаёт на паузу, чтобы не отнимать
-лимиты проверок. При выдаче ник ещё раз проверяется — и только потом отдаётся.
+Если в пуле есть аккаунт, отданный только пользователям (MTProtoPool._reserved), воркер работает
+постоянно — пользователям хватает этого аккаунта. Иначе на время поиска пользователя воркер
+встаёт на паузу, чтобы не отнимать лимиты проверок. При выдаче ник ещё раз проверяется — и только
+потом отдаётся.
 
 Размер запаса — настройки pool_target_5 / pool_target_6 в админке (по умолчанию 500 + 500 строк,
 для БД это мелочь). Выданные и занятые ники сразу удаляются. Фон тратит только свою долю лимита
@@ -20,6 +22,7 @@ from sqlalchemy import delete, func, select
 
 from database.base import session_maker
 from database.models import FreeName, utcnow
+from services import fragment_parser
 from services.username_checker import CheckerUnavailable, CheckResult, UsernameChecker, generate_nice, is_valid_username
 
 log = logging.getLogger(__name__)
@@ -53,8 +56,8 @@ class FreeNamePool:
     # Ник в запасе перепроверяется раз в 6 часов: при большом запасе чаще — сожжёт лимиты аккаунтов,
     # а перед выдачей ник всё равно проверяется заново
     RECHECK_AFTER = timedelta(hours=6)
-    BATCH = 3  # проверок за раз — небольшими порциями, чтобы быстро уступить место пользователю
-    PAUSE = 1.5  # пауза между порциями, сек (бережём лимиты аккаунтов)
+    BATCH = 6  # проверок за раз
+    PAUSE = 1.0  # пауза между порциями, сек (бережём лимиты t.me и Fragment)
 
     def __init__(self, checker: UsernameChecker):
         self.checker = checker
@@ -141,10 +144,14 @@ class FreeNamePool:
         await asyncio.sleep(5)  # даём боту спокойно стартовать
         while True:
             try:
-                if not activity.idle(self.QUIET_SEC):
+                pool = self.checker.pool
+                if not pool._reserved() and not activity.idle(self.QUIET_SEC):
                     await asyncio.sleep(2)
                     continue
-                pool = self.checker.pool
+                if time.monotonic() < fragment_parser._limited_until:
+                    # Fragment ограничил частоту: без него аккаунтам пришлось бы проверять втрое больше ников
+                    await asyncio.sleep(fragment_parser._limited_until - time.monotonic() + 1)
+                    continue
                 if pool.size and not pool.has_capacity(background=True):
                     # Фоновая доля лимита аккаунтов на этот час исчерпана или все во FloodWait — ждём
                     await asyncio.sleep(30)
