@@ -150,6 +150,8 @@ class MTProtoAccount(Base):
     name: Mapped[str] = mapped_column(String(64), primary_key=True)  # обычно «79991234567.session»
     session: Mapped[str] = mapped_column(Text)  # полный доступ к аккаунту — не показывать и не логировать
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # До какого момента (UTC) аккаунт во FloodWait или заморожен — чтобы перезапуск бота это не забывал
+    busy_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class FreeName(Base):

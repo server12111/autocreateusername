@@ -657,6 +657,11 @@ async def save_mtproto_account(session: AsyncSession, name: str, session_string:
     await session.commit()
 
 
+async def set_mtproto_busy(session: AsyncSession, name: str, until: datetime) -> None:
+    await session.execute(update(MTProtoAccount).where(MTProtoAccount.name == name).values(busy_until=until))
+    await session.commit()
+
+
 async def delete_mtproto_account(session: AsyncSession, name: str) -> bool:
     res = await session.execute(delete(MTProtoAccount).where(MTProtoAccount.name == name))
     await session.commit()

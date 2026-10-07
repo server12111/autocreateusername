@@ -4,7 +4,7 @@ import os
 import random
 import time
 from collections import deque
-from datetime import timezone
+from datetime import datetime, timezone
 
 from telethon import TelegramClient
 from telethon.errors import (
@@ -165,6 +165,7 @@ class MTProtoPool:
     # он проверяет ники только для пользователей — в поиске и перед выдачей ника из запаса — и в своём темпе
     RESERVED_EVERY = 5
     RESERVED_INTERVAL = 1.0
+    BACKGROUND_SLOWDOWN = 2
     WARMUP = 3600  # только что добавленный аккаунт час не проверяет ники: сразу после входа Telegram режет быстрее
 
     def __init__(self, sessions_dir: str, api_id: int, api_hash: str):
@@ -208,8 +209,8 @@ class MTProtoPool:
             return
         await self._import_session_files()
         async with session_maker() as s:
-            accounts = [(a.name, a.session, a.created_at) for a in await crud.list_mtproto_accounts(s)]
-        for name, session_string, created_at in accounts:
+            accounts = [(a.name, a.session, a.created_at, a.busy_until) for a in await crud.list_mtproto_accounts(s)]
+        for name, session_string, created_at, busy_until in accounts:
             client = self._client(session_string)
             try:
                 await client.connect()
@@ -218,6 +219,9 @@ class MTProtoPool:
                     # Прогрев считается от добавления, поэтому перезапуск бота его не сбрасывает
                     if created_at:
                         worker.warmup_until = created_at.replace(tzinfo=timezone.utc).timestamp() + self.WARMUP
+                    # FloodWait и заморозка переживают перезапуск: иначе бот сразу снова дёрнет такой аккаунт
+                    if busy_until:
+                        worker.busy_until = busy_until.replace(tzinfo=timezone.utc).timestamp()
                     self.workers.append(worker)
                     log.info("MTProto: аккаунт %s подключён", name)
                 else:
@@ -359,11 +363,23 @@ class MTProtoPool:
         now = time.time()
         worker = min(candidates, key=lambda w: max(w.next_at, now))
         slot = max(worker.next_at, now)
-        interval = min(self.interval, self.RESERVED_INTERVAL) if worker in self._reserved() else self.interval
+        if worker in self._reserved():
+            interval = min(self.interval, self.RESERVED_INTERVAL)
+        else:
+            # Фон идёт вдвое реже: при плотной фоновой нагрузке Telegram выдавал аккаунтам FloodWait на сутки
+            interval = self.interval * (self.BACKGROUND_SLOWDOWN if background else 1)
         # Темп со случайным разбросом, чтобы запросы не шли ровной «машинной» сеткой
         worker.next_at = slot + interval * worker.slow * random.uniform(0.85, 1.25)
         worker.hour_count += 1
         return worker, slot
+
+    async def _save_busy(self, worker: _Worker) -> None:
+        try:
+            async with session_maker() as s:
+                until = datetime.fromtimestamp(worker.busy_until, timezone.utc).replace(tzinfo=None)
+                await crud.set_mtproto_busy(s, worker.name, until)
+        except Exception as e:
+            log.warning("MTProto: не удалось сохранить паузу %s: %s", worker.name, e)
 
     async def check_username(self, username: str, background: bool = False) -> dict:
         """
@@ -398,6 +414,7 @@ class MTProtoPool:
                     worker.floods.append(time.time())
                     log.info("MTProto: %s во FloodWait на %d сек, темп замедлен до %.1f сек",
                              worker.name, e.seconds, self.interval * worker.slow)
+                    await self._save_busy(worker)
                     continue
                 except FrozenMethodInvalidError:
                     # Аккаунт заморожен Telegram за нарушения: почти все запросы, включая проверку ников,
@@ -406,6 +423,7 @@ class MTProtoPool:
                     worker.busy_until = time.time() + self.FROZEN_PAUSE
                     log.warning("MTProto: аккаунт %s заморожен Telegram — пауза %d ч",
                                 worker.name, self.FROZEN_PAUSE // 3600)
+                    await self._save_busy(worker)
                     continue
                 except DEAD_SESSION_ERRORS as e:
                     # Аккаунт разлогинен, удалён или забанен — больше он не заработает
