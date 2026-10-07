@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 
 import aiohttp
 
@@ -14,6 +15,11 @@ _PRICE_RE = re.compile(r'table-cell-value tm-value icon-before icon-ton">([\d,.\
 
 # Ограничиваем параллельные запросы к Fragment, чтобы он не начал отдавать заглушки
 _sem = asyncio.Semaphore(6)
+
+# После ~150 быстрых запросов Fragment на полминуты-минуту отвечает редиректом на главную.
+# Пока лимит не прошёл, не шлём запросы: каждый новый только продлевает блокировку
+LIMIT_PAUSE = 30
+_limited_until = 0.0
 
 
 class FragmentParser:
@@ -33,9 +39,11 @@ class FragmentParser:
         """
         clean = username.lstrip("@").lower()
         result = {"available": False, "status": "error", "price": None}
+        if time.monotonic() < _limited_until:
+            return result
         for attempt in range(2):
             result = await cls._fetch(clean)
-            if result["status"] != "error":
+            if result["status"] != "error" or time.monotonic() < _limited_until:
                 return result
             await asyncio.sleep(0.5 * (attempt + 1))
         log.warning("Fragment: не удалось проверить @%s", clean)
@@ -43,6 +51,7 @@ class FragmentParser:
 
     @classmethod
     async def _fetch(cls, clean: str) -> dict:
+        global _limited_until
         error = {"available": False, "status": "error", "price": None}
         try:
             async with _sem, get_session().get(
@@ -51,8 +60,12 @@ class FragmentParser:
             ) as resp:
                 if resp.status in (301, 302, 303):
                     # Ника нет на Fragment — редирект на поиск. Любой другой редирект — не доверяем
-                    if "query=" in resp.headers.get("Location", ""):
+                    location = resp.headers.get("Location", "")
+                    if "query=" in location:
                         return {"available": True, "status": "free", "price": None}
+                    if location == "/" and time.monotonic() >= _limited_until:
+                        _limited_until = time.monotonic() + LIMIT_PAUSE
+                        log.warning("Fragment: ограничение частоты запросов — пауза %d сек", LIMIT_PAUSE)
                     return error
                 if resp.status == 404:
                     return {"available": True, "status": "free", "price": None}
