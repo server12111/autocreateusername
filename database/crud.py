@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, or_, select, update
@@ -60,6 +61,26 @@ async def get_setting_int(session: AsyncSession, key: str) -> int:
         return int(await get_setting(session, key))
     except ValueError:
         return int(DEFAULT_SETTINGS.get(key, "0") or 0)
+
+
+async def pop_forced_result(session: AsyncSession, user: User) -> str | None:
+    """Ник, который админ назначил пользователю на ближайший поиск (настройка forced_results —
+    JSON {"username или tg_id": "ник"}). Выдаётся один раз и без проверок. Читается из БД мимо кэша,
+    чтобы назначение работало без перезапуска бота."""
+    row = await session.get(Setting, "forced_results")
+    if not row or not row.value:
+        return None
+    try:
+        forced = json.loads(row.value)
+    except ValueError:
+        return None
+    for key in (str(user.tg_id), (user.username or "").lower()):
+        if key and key in forced:
+            nick = str(forced.pop(key)).lstrip("@")
+            row.value = json.dumps(forced)
+            await session.commit()
+            return nick
+    return None
 
 
 async def set_setting(session: AsyncSession, key: str, value: str) -> None:

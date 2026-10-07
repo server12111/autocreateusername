@@ -24,6 +24,7 @@ from services.op_manager import check_sponsors
 from services.username_checker import (
     STATUS_TEXT,
     CheckerUnavailable,
+    CheckResult,
     UsernameChecker,
     generate_from_mask,
     generate_nice,
@@ -242,7 +243,10 @@ async def _run_search(
     try:
         exclude = await crud.recently_checked_by_user(session, user.tg_id, since_hours=24 * 7)
         result = None
-        if name_pool and pool_length:
+        forced = await crud.pop_forced_result(session, user)
+        if forced:
+            result = CheckResult(forced, "free", True, True, source="admin")
+        if not result and name_pool and pool_length:
             result = await name_pool.take(pool_length, exclude)
         if not result:
             result, _ = await checker.find_free(generator, exclude=exclude)
