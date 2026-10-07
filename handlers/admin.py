@@ -119,8 +119,9 @@ async def adm_home(call: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "adm:stats")
-async def adm_stats(call: CallbackQuery, session: AsyncSession, pool: MTProtoPool) -> None:
+async def adm_stats(call: CallbackQuery, session: AsyncSession, pool: MTProtoPool, name_pool: FreeNamePool) -> None:
     s = await crud.get_stats(session)
+    stock = await name_pool.stock()
     text = (
         f"📊 <b>СТАТИСТИКА</b>\n\n"
         f"👥 Всего пользователей: <b>{s['total']}</b>\n"
@@ -134,7 +135,9 @@ async def adm_stats(call: CallbackQuery, session: AsyncSession, pool: MTProtoPoo
         f"⭐️ Заработано Stars: <b>{s['stars']}</b>\n"
         f"💵 Заработано в долларах: <b>${s['usd_cents'] / 100:.2f}</b>\n"
         f"🧾 Всего платежей: <b>{s['payments']}</b>\n\n"
-        f"🤖 MTProto-пул: <b>{pool.alive}/{pool.size}</b> аккаунтов доступно"
+        f"🤖 MTProto-пул: <b>{pool.alive}/{pool.size}</b> аккаунтов доступно\n"
+        f"📦 Запас готовых ников: 5 букв — <b>{stock.get(5, 0)}/{name_pool.TARGET.get(5, 0)}</b>, "
+        f"6 букв — <b>{stock.get(6, 0)}/{name_pool.TARGET.get(6, 0)}</b>"
     )
     await call.answer()
     await safe_edit(call, text, _kb(("🔄 Обновить", "adm:stats"), ("🩺 Проверка сервисов", "adm:health"), BACK))
