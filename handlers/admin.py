@@ -871,6 +871,9 @@ async def _settings_screen(session: AsyncSession):
     captcha = await crud.get_setting(session, "captcha_enabled") == "1"
     text += f"• Капча при входе: <b>{'включена' if captcha else 'выключена'}</b>\n"
     kb.button(text=f"🤖 Капча: {'выключить' if captcha else 'включить'}", callback_data="adm:set:captcha")
+    meaning = await crud.get_setting(session, "meaning_mode")
+    text += f"• Слова со смыслом: <b>{MEANING_MODES.get(meaning, meaning)}</b>\n"
+    kb.button(text=f"🧠 Слова со смыслом: {MEANING_MODES.get(meaning, meaning)} → сменить", callback_data="adm:set:meaning")
     kb.button(text=BACK[0], callback_data=BACK[1])
     kb.adjust(1)
     return text, kb.as_markup()
@@ -888,6 +891,19 @@ async def adm_set_battle(call: CallbackQuery, session: AsyncSession) -> None:
     on = await crud.get_setting(session, "battle_enabled") == "1"
     await crud.set_setting(session, "battle_enabled", "0" if on else "1")
     await call.answer("Готово")
+    await safe_edit(call, *await _settings_screen(session))
+
+
+MEANING_MODES = {"off": "выключено", "admins": "только админам", "premium": "для Premium"}
+
+
+@router.callback_query(F.data == "adm:set:meaning")
+async def adm_set_meaning(call: CallbackQuery, session: AsyncSession) -> None:
+    order = list(MEANING_MODES)
+    mode = await crud.get_setting(session, "meaning_mode")
+    new = order[(order.index(mode) + 1) % len(order)] if mode in order else "admins"
+    await crud.set_setting(session, "meaning_mode", new)
+    await call.answer(f"Слова со смыслом: {MEANING_MODES[new]}")
     await safe_edit(call, *await _settings_screen(session))
 
 

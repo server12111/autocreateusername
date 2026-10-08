@@ -25,6 +25,8 @@ class Settings(BaseSettings):
 
     # Оплата в долларах: Crypto Pay API (@CryptoBot) и xRocket Pay API
     CRYPTOBOT_TOKEN: str = ""
+    # Claude API — нейросеть подбирает слова по теме в режиме «Слова со смыслом»; пусто — только готовые темы
+    ANTHROPIC_API_KEY: str = ""
     XROCKET_TOKEN: str = ""
 
     @model_validator(mode="after")
@@ -111,4 +113,5 @@ DEFAULT_SETTINGS = {
     "premium_emoji": "{}",
     "premium_emoji_enabled": "1",
     "button_colors_enabled": "1",
+    "meaning_mode": "admins",  # «Слова со смыслом»: off — выключено, admins — только админам, premium — Premium
 }

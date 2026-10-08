@@ -4,7 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import PREMIUM_PLANS, SEARCH_PACKS, plan_period
-from services import social_checker
+from services import meaning_words, social_checker
 from services.crypto_pay import PROVIDERS, provider_name
 
 
@@ -54,7 +54,7 @@ def sponsor_bonus_kb(channels) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def search_kb(sponsor_bonus: int = 0, five_free: bool = False) -> InlineKeyboardMarkup:
+def search_kb(sponsor_bonus: int = 0, five_free: bool = False, meaning: bool = False) -> InlineKeyboardMarkup:
     """sponsor_bonus > 0 — показать кнопку бонуса за подписку на спонсоров;
     five_free — новичку первый поиск 5 букв бесплатно."""
     kb = InlineKeyboardBuilder()
@@ -62,11 +62,54 @@ def search_kb(sponsor_bonus: int = 0, five_free: bool = False) -> InlineKeyboard
     kb.button(text="🔤 6 букв", callback_data="s:6")
     kb.button(text="✍️ Поиск по слову", callback_data="s:word")
     kb.button(text="🎯 Поиск по маске", callback_data="s:mask")
+    if meaning:
+        kb.button(text="🧠 Слова со смыслом", callback_data="s:mean")
     kb.button(text="🪤 Ловушка на ник (Снайпер)", callback_data="s:trap")
     if sponsor_bonus:
         kb.button(text=f"🎁 +{sponsor_bonus} поиска за подписку", callback_data="s:bonus")
     _back(kb)
-    kb.adjust(2, 2, 1, 1, 1)
+    kb.adjust(2, 2, 1, 1, 1, 1)
+    return kb.as_markup()
+
+
+def meaning_lang_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for code, (flag, name) in meaning_words.LANGS.items():
+        kb.button(text=f"{flag} {name}", callback_data=f"mn:l:{code}")
+    kb.button(text="🌍 Любой язык", callback_data="mn:l:any")
+    _back(kb, "menu:search", "🔙 Назад в поиск")
+    kb.adjust(2, 2, 1, 1)
+    return kb.as_markup()
+
+
+def meaning_theme_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for code, (emoji, name) in meaning_words.THEMES.items():
+        kb.button(text=f"{emoji} {name}", callback_data=f"mn:t:{code}")
+    kb.button(text="🎲 Любая тема", callback_data="mn:t:any")
+    _back(kb, "s:mean", "🔙 Выбор языка")
+    kb.adjust(*([2] * (len(meaning_words.THEMES) // 2)), 1, 1)
+    return kb.as_markup()
+
+
+def meaning_len_kb(lang: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for n in meaning_words.LENGTHS:
+        kb.button(text=f"{n} букв", callback_data=f"mn:n:{n}")
+    kb.button(text="🎲 Любая длина", callback_data="mn:n:0")
+    _back(kb, f"mn:l:{lang}", "🔙 Выбор темы")
+    kb.adjust(4, 1, 1)
+    return kb.as_markup()
+
+
+def meaning_found_kb(can_save: bool = True) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔄 Ещё варианты", callback_data="mn:more")
+    if can_save:
+        kb.button(text="📁 Сохранить все", callback_data="mn:save")
+    kb.button(text="⚙️ Другой язык или тема", callback_data="s:mean")
+    _back(kb, "menu:search", "🔙 Назад в поиск")
+    kb.adjust(2, 1, 1) if can_save else kb.adjust(1, 1, 1)
     return kb.as_markup()
 
 

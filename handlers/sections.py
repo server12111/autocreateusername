@@ -78,7 +78,8 @@ async def build_search(session: AsyncSession, user: User, bot: Bot) -> Screen:
     if not premium and not user.sponsor_bonus_claimed and await crud.bonus_sponsors_enabled(session):
         bonus = await crud.get_setting_int(session, "sponsor_bonus")
     five_free = crud.first_search_free(user)
-    return text, inline.search_kb(bonus, five_free), "search"
+    meaning = await crud.meaning_available(session, user)
+    return text, inline.search_kb(bonus, five_free, meaning), "search"
 
 
 async def premium_limit_phrase(session: AsyncSession) -> str:
