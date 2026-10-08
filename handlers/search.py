@@ -794,8 +794,16 @@ async def meaning_custom_theme(message: Message, session: AsyncSession, user: Us
         await message.answer(f"⚠️ Напишите тему короче — до {MEAN_THEME_MAX} символов, например: «самураи»",
                              reply_markup=inline.meaning_theme_kb())
         return
+    # Сначала ищем среди готовых тем по ключевым словам — бесплатно и без нейросети
+    matched = meaning_words.match_theme(theme)
+    if matched:
+        await state.set_state(None)
+        await state.update_data(mean_theme=matched, mean_custom=None)
+        await _ask_length(message, state)
+        return
     if not meaning_ai.enabled():
-        await message.answer("⚠️ Подбор по своей теме сейчас недоступен — выберите готовую тему",
+        await message.answer(f"🤔 Не нашёл тему «{html.escape(theme)}». Напишите по-другому (например: "
+                             "<i>крипта</i>, <i>аниме</i>, <i>тачки</i>) или выберите из списка 👇",
                              reply_markup=inline.meaning_theme_kb())
         return
     await state.set_state(None)
