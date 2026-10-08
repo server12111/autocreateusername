@@ -27,6 +27,7 @@ from handlers.search import (
 from handlers.sections import safe_edit
 from keyboards import inline
 from services import social_checker
+from services.op_manager import notify_referrer
 from services.username_checker import CheckerUnavailable, UsernameChecker, generate_nice, normalize
 from texts import SOCIAL_CHECK_PROMPT, SOCIAL_TEXT
 
@@ -241,6 +242,7 @@ async def _find_everywhere(
     row = await crud.add_search(session, user.tg_id, found, "tg" in order, True, status)
     user.total_searches_done += 1
     await session.commit()
+    await notify_referrer(call.bot, session, user)
     statuses = {c: ("free", social_checker.STATUS_MARK["free"]) for c in order}
     if likely:
         statuses["tg"] = ("unknown", "🟡 вероятно свободен")

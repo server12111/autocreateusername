@@ -20,7 +20,7 @@ from keyboards import inline
 from services.free_pool import FreeNamePool, activity
 from services import social_checker
 from services.nickname_sniper import trap_networks
-from services.op_manager import check_sponsors
+from services.op_manager import check_sponsors, notify_referrer
 from services.username_checker import (
     STATUS_TEXT,
     CheckerUnavailable,
@@ -280,6 +280,8 @@ async def _run_search(
     row = await crud.add_search(session, user.tg_id, result.username, True, True, "free")
     user.total_searches_done += 1
     await session.commit()
+    # Друг засчитывается после первого поиска — проверяем сразу, а не при следующем нажатии
+    await notify_referrer(event.bot, session, user)
     text = FOUND_TEXT.format(username=result.username, length=len(result.username))
     if result.is_likely:
         text += LIKELY_NOTE
@@ -486,6 +488,7 @@ async def _run_word_search(
         ids.append(row.id)
     user.total_searches_done += 1
     await session.commit()
+    await notify_referrer(event.bot, session, user)
     await state.update_data(word_pos=new_pos, word_ids=ids, word_trap=can_trap)
 
     lines = [f"{i}. <code>@{r.username}</code>{' 🟡' if r.is_likely else ''}" for i, r in enumerate(found, 1)]
