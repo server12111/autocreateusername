@@ -44,6 +44,9 @@ class User(Base):
     referrer_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     referrals_count: Mapped[int] = mapped_column(Integer, default=0)
     is_ref_counted: Mapped[bool] = mapped_column(Boolean, default=False)
+    ref_counted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Друг задержан как подозрительный (много друзей за минуты) и ждёт решения админа
+    ref_hold: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     is_blocked_bot: Mapped[bool] = mapped_column(Boolean, default=False)
 

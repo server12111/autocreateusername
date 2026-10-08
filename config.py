@@ -67,6 +67,11 @@ PRICES_USD = {
 }
 # Уровни реферальных наград: (кол-во друзей, дни Premium)
 REF_TIERS = [(7, 1), (9, 3), (18, 10), (35, 25)]
+# Защита от накрутки: друг засчитывается только после стольких поисков, а если у пригласившего
+# за REF_BURST_MINUTES минут уже засчитано REF_BURST_COUNT друзей — следующие ждут решения админа
+REF_MIN_SEARCHES = 1
+REF_BURST_COUNT = 3
+REF_BURST_MINUTES = 10
 
 
 def plan_period(days: int) -> str:

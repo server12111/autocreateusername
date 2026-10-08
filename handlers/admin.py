@@ -8,7 +8,7 @@ import time
 from datetime import timedelta
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -27,7 +27,7 @@ from services.botohub_service import BotohubService
 from services.fragment_parser import FragmentParser
 from services.free_pool import FreeNamePool
 from services.mtproto_pool import MTProtoPool
-from services.op_manager import MAX_SHOWN, check_sponsors, reset_required_cache
+from services.op_manager import MAX_SHOWN, approve_held_referrals, check_sponsors, reset_required_cache
 from services.tgrass_service import TgrassService
 from services.username_checker import UsernameChecker
 from texts import SPONSOR_BONUS_TEXT
@@ -204,6 +204,26 @@ async def adm_health(call: CallbackQuery, checker: UsernameChecker, pool: MTProt
         "(HTTP_PROXY в .env) или сервер в другой стране</i>"
     )
     await call.message.answer(text, reply_markup=_kb(("🔄 Ещё раз", "adm:health"), ("🔙 К статистике", "adm:stats")))
+
+
+# ───────────────────────── Накрутка рефералов ─────────────────────────
+
+
+@router.callback_query(F.data.startswith("adm:ref:"))
+async def adm_ref_decision(call: CallbackQuery, bot: Bot, session: AsyncSession) -> None:
+    """Решение по задержанным друзьям из уведомления о подозрительной накрутке."""
+    _, _, action, referrer_id = call.data.split(":")
+    if action == "ok":
+        done = await approve_held_referrals(bot, session, int(referrer_id))
+        note = f"✅ Засчитано задержанных друзей: {done}"
+    else:
+        done = await crud.reject_held_referrals(session, int(referrer_id))
+        note = f"❌ Не засчитано: {done} — они больше не считаются приглашёнными"
+    await call.answer(note, show_alert=True)
+    try:
+        await call.message.edit_text(f"{call.message.html_text}\n\n<b>{note}</b>")
+    except TelegramBadRequest:
+        pass
 
 
 # ───────────────────────── Спонсоры ─────────────────────────

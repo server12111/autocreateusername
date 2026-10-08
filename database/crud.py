@@ -5,7 +5,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import DEFAULT_SETTINGS, REF_TIERS
+from config import DEFAULT_SETTINGS, REF_BURST_COUNT, REF_BURST_MINUTES, REF_MIN_SEARCHES, REF_TIERS
 from database.models import (
     BattleVote,
     CryptoInvoice,
@@ -272,13 +272,69 @@ async def cleanup_old_records(session: AsyncSession, days: int = 30) -> dict[str
     return {"history": history.rowcount or 0, "traps": traps.rowcount or 0, "invoices": invoices.rowcount or 0}
 
 
-async def credit_referral(session: AsyncSession, user: User) -> tuple[User, int | None] | None:
-    """Засчитывает реферала. Возвращает (реферер, дни награды | None) или None."""
+def referral_ready(user: User) -> bool:
+    """Друга пора засчитывать: прошёл капчу, сделал REF_MIN_SEARCHES поисков, не засчитан и не задержан."""
+    return bool(
+        user.referrer_id and user.is_captcha_passed and not user.is_ref_counted and not user.ref_hold
+        and user.total_searches_done >= REF_MIN_SEARCHES
+    )
+
+
+async def hold_referral_if_burst(session: AsyncSession, user: User) -> int:
+    """Задерживает друга, если у пригласившего подозрительно много друзей за последние минуты
+    или уже есть задержанные. Возвращает число задержанных у пригласившего (0 — друг не задержан)."""
+    since = utcnow() - timedelta(minutes=REF_BURST_MINUTES)
+    recent = await session.scalar(
+        select(func.count()).select_from(User).where(
+            User.referrer_id == user.referrer_id, User.is_ref_counted.is_(True), User.ref_counted_at >= since
+        )
+    )
+    held = await session.scalar(
+        select(func.count()).select_from(User).where(User.referrer_id == user.referrer_id, User.ref_hold.is_(True))
+    )
+    if recent < REF_BURST_COUNT and not held:
+        return 0
+    res = await session.execute(
+        update(User)
+        .where(User.tg_id == user.tg_id, User.is_ref_counted.is_(False), User.ref_hold.is_(False))
+        .values(ref_hold=True)
+    )
+    await session.commit()
+    await session.refresh(user)
+    return held + 1 if res.rowcount == 1 else 0
+
+
+async def held_referrals(session: AsyncSession, referrer_id: int) -> list[User]:
+    return list((await session.scalars(
+        select(User).where(User.referrer_id == referrer_id, User.ref_hold.is_(True)).order_by(User.registered_at)
+    )).all())
+
+
+async def reject_held_referrals(session: AsyncSession, referrer_id: int) -> int:
+    """Админ отклонил задержанных друзей: они больше не считаются приглашёнными этим пользователем."""
+    res = await session.execute(
+        update(User).where(User.referrer_id == referrer_id, User.ref_hold.is_(True))
+        .values(ref_hold=False, referrer_id=None)
+    )
+    await session.commit()
+    return res.rowcount
+
+
+async def credit_referral(
+    session: AsyncSession, user: User, approved: bool = False
+) -> tuple[User, int | None] | None:
+    """Засчитывает реферала. Возвращает (реферер, дни награды | None) или None.
+    approved — админ одобрил задержанного друга: засчитать, несмотря на задержку."""
     if user.is_ref_counted or not user.referrer_id or not user.is_captcha_passed:
         return None
+    if not approved and not referral_ready(user):
+        return None
     # Атомарно и только один раз: два параллельных обновления одного друга не засчитают его дважды
+    cond = [User.tg_id == user.tg_id, User.is_ref_counted.is_(False)]
+    if not approved:
+        cond.append(User.ref_hold.is_(False))
     res = await session.execute(
-        update(User).where(User.tg_id == user.tg_id, User.is_ref_counted.is_(False)).values(is_ref_counted=True)
+        update(User).where(*cond).values(is_ref_counted=True, ref_hold=False, ref_counted_at=utcnow())
     )
     if res.rowcount != 1:
         await session.commit()

@@ -105,7 +105,7 @@ REF_TEXT = (
     "<blockquote>🎁 <b>Награды:</b>\n"
     + "\n".join(f"{need} → +{plan_period(days)}{{t{i}}}" for i, (need, days) in enumerate(REF_TIERS, 1))
     + "</blockquote>\n\n"
-    "<i>Друг засчитывается после капчи и подписки на каналы</i>"
+    "<i>Друг засчитывается после капчи, подписки на каналы и первого поиска</i>"
 )
 
 SHARE_TEXT = (

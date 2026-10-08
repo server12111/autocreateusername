@@ -4,13 +4,16 @@
 Tgrass и BotoHub — по желанию, подписка на них даёт бонусные поиски.
 """
 
+import html
 import logging
 import time
 from dataclasses import dataclass, field
 
 from aiogram import Bot
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import REF_BURST_COUNT, REF_BURST_MINUTES, settings
 from database import crud
 from database.models import User
 from services.botohub_service import BotohubService
@@ -101,11 +104,64 @@ async def get_unsubscribed(bot: Bot, session: AsyncSession, user: User) -> list[
 
 
 async def notify_referrer(bot: Bot, session: AsyncSession, user: User) -> None:
-    """Засчитывает приглашённого друга (после подписки на спонсоров) и уведомляет пригласившего."""
-    credited = await crud.credit_referral(session, user)
-    if not credited:
+    """Засчитывает приглашённого друга (после капчи, подписки и первого поиска) и уведомляет пригласившего.
+    Если у пригласившего подозрительно много друзей за последние минуты — задерживает друга до решения админа."""
+    if not crud.referral_ready(user):
         return
-    referrer, reward = credited
+    held = await crud.hold_referral_if_burst(session, user)
+    if held:
+        # Админам — при первом задержанном и дальше на каждом пятом, чтобы не засыпать сообщениями
+        if held == 1 or held % 5 == 0:
+            await _alert_admins(bot, session, user.referrer_id)
+        return
+    credited = await crud.credit_referral(session, user)
+    if credited:
+        await _send_credited(bot, *credited)
+
+
+async def approve_held_referrals(bot: Bot, session: AsyncSession, referrer_id: int) -> int:
+    """Админ одобрил задержанных друзей: засчитываем каждого и выдаём награды."""
+    approved = 0
+    for friend in await crud.held_referrals(session, referrer_id):
+        credited = await crud.credit_referral(session, friend, approved=True)
+        if credited:
+            approved += 1
+            await _send_credited(bot, *credited)
+    return approved
+
+
+async def _alert_admins(bot: Bot, session: AsyncSession, referrer_id: int) -> None:
+    referrer = await crud.get_user(session, referrer_id)
+    held = await crud.held_referrals(session, referrer_id)
+    if not referrer or not held:
+        return
+    who = f"@{referrer.username}" if referrer.username else html.escape(referrer.first_name or "без имени")
+    lines = "\n".join(
+        f"• {'@' + f.username if f.username else '—'} · {html.escape(f.first_name or '')} · "
+        f"<code>{f.tg_id}</code> · поисков {f.total_searches_done}"
+        for f in held[:15]
+    )
+    more = f"\n…и ещё {len(held) - 15}" if len(held) > 15 else ""
+    text = (
+        "🚨 <b>Похоже на накрутку рефералов</b>\n\n"
+        f"{who} (<code>{referrer.tg_id}</code>): за {REF_BURST_MINUTES} мин засчитано "
+        f"{REF_BURST_COUNT}+ друзей подряд, следующие задержаны\n"
+        f"Друзей засчитано: <b>{referrer.referrals_count}</b> · задержано: <b>{len(held)}</b>\n\n"
+        f"{lines}{more}\n\n"
+        "<i>Кнопки действуют на всех задержанных на момент нажатия</i>"
+    )
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Засчитать", callback_data=f"adm:ref:ok:{referrer_id}")
+    kb.button(text="❌ Не засчитывать", callback_data=f"adm:ref:no:{referrer_id}")
+    kb.adjust(2)
+    for admin_id in settings.admin_ids:
+        try:
+            await bot.send_message(admin_id, text, reply_markup=kb.as_markup())
+        except Exception as e:
+            log.info("Админ %s не получил уведомление о накрутке: %r", admin_id, e)
+
+
+async def _send_credited(bot: Bot, referrer: User, reward: int | None) -> None:
     text = (
         f"👥 По вашей ссылке присоединился новый друг!\n"
         f"Всего активных приглашённых: <b>{referrer.referrals_count}</b>"
