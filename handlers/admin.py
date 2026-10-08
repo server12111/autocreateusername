@@ -215,10 +215,13 @@ async def adm_ref_decision(call: CallbackQuery, bot: Bot, session: AsyncSession)
     _, _, action, referrer_id = call.data.split(":")
     if action == "ok":
         done = await approve_held_referrals(bot, session, int(referrer_id))
-        note = f"✅ Засчитано задержанных друзей: {done}"
+        await crud.set_ref_trust(session, int(referrer_id), 1)
+        note = f"✅ Засчитано задержанных друзей: {done}. Его друзей больше не задерживаю"
     else:
         done = await crud.reject_held_referrals(session, int(referrer_id))
-        note = f"❌ Не засчитано: {done} — они больше не считаются приглашёнными"
+        await crud.set_ref_trust(session, int(referrer_id), -1)
+        note = (f"❌ Не засчитано: {done}. Следующих подозрительных друзей этого пользователя "
+                "отклоняю сам, без уведомлений")
     await call.answer(note, show_alert=True)
     try:
         await call.message.edit_text(f"{call.message.html_text}\n\n<b>{note}</b>")

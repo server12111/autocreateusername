@@ -109,6 +109,8 @@ async def notify_referrer(bot: Bot, session: AsyncSession, user: User) -> None:
     if not crud.referral_ready(user):
         return
     held = await crud.hold_referral_if_burst(session, user)
+    if held < 0:
+        return  # пригласивший помечен как накрутчик — подозрительный друг отклонён молча
     if held:
         # Админам — при первом задержанном и дальше на каждом пятом, чтобы не засыпать сообщениями
         if held == 1 or held % 5 == 0:

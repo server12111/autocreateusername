@@ -282,7 +282,11 @@ def referral_ready(user: User) -> bool:
 
 async def hold_referral_if_burst(session: AsyncSession, user: User) -> int:
     """Задерживает друга, если у пригласившего подозрительно много друзей за последние минуты
-    или уже есть задержанные. Возвращает число задержанных у пригласившего (0 — друг не задержан)."""
+    или уже есть задержанные. Возвращает число задержанных у пригласившего (0 — друг не задержан,
+    -1 — пригласивший помечен админом как накрутчик, и друг отклонён без уведомления)."""
+    trust = await session.scalar(select(User.ref_trust).where(User.tg_id == user.referrer_id))
+    if trust == 1:
+        return 0
     since = utcnow() - timedelta(minutes=REF_BURST_MINUTES)
     recent = await session.scalar(
         select(func.count()).select_from(User).where(
@@ -294,6 +298,13 @@ async def hold_referral_if_burst(session: AsyncSession, user: User) -> int:
     )
     if recent < REF_BURST_COUNT and not held:
         return 0
+    if trust == -1:
+        await session.execute(
+            update(User).where(User.tg_id == user.tg_id, User.is_ref_counted.is_(False)).values(referrer_id=None)
+        )
+        await session.commit()
+        await session.refresh(user)
+        return -1
     res = await session.execute(
         update(User)
         .where(User.tg_id == user.tg_id, User.is_ref_counted.is_(False), User.ref_hold.is_(False))
@@ -308,6 +319,11 @@ async def held_referrals(session: AsyncSession, referrer_id: int) -> list[User]:
     return list((await session.scalars(
         select(User).where(User.referrer_id == referrer_id, User.ref_hold.is_(True)).order_by(User.registered_at)
     )).all())
+
+
+async def set_ref_trust(session: AsyncSession, referrer_id: int, trust: int) -> None:
+    await session.execute(update(User).where(User.tg_id == referrer_id).values(ref_trust=trust))
+    await session.commit()
 
 
 async def reject_held_referrals(session: AsyncSession, referrer_id: int) -> int:

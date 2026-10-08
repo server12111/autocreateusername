@@ -47,6 +47,9 @@ class User(Base):
     ref_counted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Друг задержан как подозрительный (много друзей за минуты) и ждёт решения админа
     ref_hold: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Решение админа о пригласившем: 1 — доверяем (друзей не задерживаем), -1 — накрутчик
+    # (подозрительных друзей отклоняем сами, без уведомлений), 0 — решения не было
+    ref_trust: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     is_blocked_bot: Mapped[bool] = mapped_column(Boolean, default=False)
 
