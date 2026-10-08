@@ -6,4 +6,3 @@ pydantic>=2.7
 pydantic-settings>=2.3
 Telethon>=1.40  # FrozenMethodInvalidError (заморозка аккаунтов) — с 1.40
 APScheduler>=3.10,<4
-anthropic>=0.97  # «Слова со смыслом»: подбор слов по теме через Claude API

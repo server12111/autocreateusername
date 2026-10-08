@@ -1,5 +1,4 @@
 import asyncio
-import html
 import logging
 import time
 from datetime import timedelta
@@ -19,7 +18,7 @@ from database.models import User, msk, utcnow
 from handlers.sections import build_search, cooldown_left, premium_limit_phrase, safe_edit
 from keyboards import inline
 from services.free_pool import FreeNamePool, activity
-from services import fragment_parser, meaning_ai, meaning_words, social_checker
+from services import social_checker
 from services.nickname_sniper import trap_networks
 from services.op_manager import check_sponsors, notify_referrer
 from services.username_checker import (
@@ -38,10 +37,6 @@ from services.username_checker import (
 from texts import (
     FOUND_TEXT,
     MASK_PROMPT,
-    MEANING_LANG_TEXT,
-    MEANING_LEN_TEXT,
-    MEANING_NOTE,
-    MEANING_THEME_TEXT,
     NO_SPONSORS_TEXT,
     PAYWALL_TEXT,
     PREMIUM_ONLY_TEXT,
@@ -66,7 +61,6 @@ class SearchStates(StatesGroup):
     mask = State()
     trap = State()
     word = State()
-    meaning_theme = State()
 
 
 @router.callback_query(F.data == "menu:search")
@@ -712,249 +706,3 @@ async def trap_delete(call: CallbackQuery, session: AsyncSession, user: User) ->
     await crud.delete_trap(session, user.tg_id, int(call.data.split(":")[2]))
     await call.answer("🗑 Ловушка удалена")
     await safe_edit(call, *await _traps_screen(session, user))
-
-
-# ───────────────────────── Слова со смыслом ─────────────────────────
-
-MEAN_LIMIT = 5  # свободных слов за один поиск
-MEAN_SECONDS = 60  # дольше не ищем — подходящие слова могли закончиться
-MEAN_CHUNK = 12  # слов проверяем параллельно (t.me и Fragment, без аккаунтов)
-MEAN_THEME_MAX = 60  # длина темы, которую пишет пользователь
-
-
-def _meaning_choice(data: dict) -> tuple[str | None, str | None, str | None, int]:
-    return data.get("mean_lang"), data.get("mean_theme"), data.get("mean_custom"), data.get("mean_len", 0)
-
-
-def _meaning_title(lang: str, theme: str | None, custom: str | None, length: int) -> str:
-    if custom:
-        base = meaning_words.describe(lang, "any", length).split(" · ")
-        base[1] = f"✍️ «{html.escape(custom)}»"
-        return " · ".join(base)
-    return meaning_words.describe(lang, theme or "any", length)
-
-
-async def _meaning_gate(event: CallbackQuery | Message, session: AsyncSession, user: User) -> bool:
-    """Режим включён для этого пользователя (настройка meaning_mode) и, если не админ, есть Premium."""
-    if not await crud.meaning_available(session, user):
-        if isinstance(event, CallbackQuery):
-            await event.answer("Раздел временно недоступен", show_alert=True)
-        else:
-            await event.answer("Раздел временно недоступен")
-        return False
-    if user.tg_id in settings.admin_ids or crud.premium_active(user):
-        return True
-    if isinstance(event, CallbackQuery):
-        return await _premium_gate(event, user)
-    await event.answer(PREMIUM_ONLY_TEXT, reply_markup=inline.premium_only_kb())
-    return False
-
-
-@router.callback_query(F.data == "s:mean")
-async def meaning_start(call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
-    if not await _meaning_gate(call, session, user):
-        return
-    await state.set_state(None)
-    await call.answer()
-    await safe_edit(call, MEANING_LANG_TEXT, inline.meaning_lang_kb())
-
-
-@router.callback_query(F.data.startswith("mn:l:"))
-async def meaning_lang(call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
-    if not await _meaning_gate(call, session, user):
-        return
-    lang = call.data.split(":")[2]
-    if lang != "any" and lang not in meaning_words.LANGS:
-        await call.answer()
-        return
-    await state.update_data(mean_lang=lang)
-    # Тему можно написать сообщением — ждём его, пока открыт этот экран
-    await state.set_state(SearchStates.meaning_theme)
-    await call.answer()
-    choice = "🌍 Любой язык" if lang == "any" else " ".join(meaning_words.LANGS[lang])
-    await safe_edit(call, MEANING_THEME_TEXT.format(choice=choice), inline.meaning_theme_kb())
-
-
-async def _ask_length(event: CallbackQuery | Message, state: FSMContext) -> None:
-    lang, theme, custom, _ = _meaning_choice(await state.get_data())
-    choice = _meaning_title(lang, theme, custom, 0).rsplit(" · ", 1)[0]
-    text = MEANING_LEN_TEXT.format(choice=choice)
-    if isinstance(event, CallbackQuery):
-        await safe_edit(event, text, inline.meaning_len_kb(lang))
-    else:
-        await event.answer(text, reply_markup=inline.meaning_len_kb(lang))
-
-
-@router.message(SearchStates.meaning_theme, F.text)
-async def meaning_custom_theme(message: Message, session: AsyncSession, user: User, state: FSMContext) -> None:
-    if not await _meaning_gate(message, session, user):
-        return
-    theme = " ".join(message.text.split())
-    if len(theme) < 2 or len(theme) > MEAN_THEME_MAX:
-        await message.answer(f"⚠️ Напишите тему короче — до {MEAN_THEME_MAX} символов, например: «самураи»",
-                             reply_markup=inline.meaning_theme_kb())
-        return
-    # Сначала ищем среди готовых тем по ключевым словам — бесплатно и без нейросети
-    matched = meaning_words.match_theme(theme)
-    if matched:
-        await state.set_state(None)
-        await state.update_data(mean_theme=matched, mean_custom=None)
-        await _ask_length(message, state)
-        return
-    if not meaning_ai.enabled():
-        await message.answer(f"🤔 Не нашёл тему «{html.escape(theme)}». Напишите по-другому (например: "
-                             "<i>крипта</i>, <i>аниме</i>, <i>тачки</i>) или выберите из списка 👇",
-                             reply_markup=inline.meaning_theme_kb())
-        return
-    await state.set_state(None)
-    await state.update_data(mean_theme=None, mean_custom=theme)
-    await _ask_length(message, state)
-
-
-@router.callback_query(F.data.startswith("mn:t:"))
-async def meaning_theme(call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
-    if not await _meaning_gate(call, session, user):
-        return
-    theme = call.data.split(":")[2]
-    lang = (await state.get_data()).get("mean_lang")
-    if not lang or (theme != "any" and theme not in meaning_words.THEMES):
-        await meaning_start(call, session, user, state)
-        return
-    await state.set_state(None)
-    await state.update_data(mean_theme=theme, mean_custom=None)
-    await call.answer()
-    await _ask_length(call, state)
-
-
-@router.callback_query(F.data.startswith("mn:n:"))
-async def meaning_length(
-    call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext, checker: UsernameChecker
-) -> None:
-    if not await _meaning_gate(call, session, user):
-        return
-    raw = call.data.split(":")[2]
-    length = int(raw) if raw.isdigit() and (int(raw) in meaning_words.LENGTHS) else 0
-    lang, theme, custom, _ = _meaning_choice(await state.get_data())
-    if not lang or not (theme or custom):
-        await meaning_start(call, session, user, state)
-        return
-    await state.update_data(mean_len=length)
-    await _guarded(call, user, _run_meaning_search(call, session, user, state, checker))
-
-
-@router.callback_query(F.data == "mn:more")
-async def meaning_more(
-    call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext, checker: UsernameChecker
-) -> None:
-    if not await _meaning_gate(call, session, user):
-        return
-    lang, theme, custom, _ = _meaning_choice(await state.get_data())
-    if not lang or not (theme or custom):
-        await meaning_start(call, session, user, state)
-        return
-    await _guarded(call, user, _run_meaning_search(call, session, user, state, checker))
-
-
-@router.callback_query(F.data == "mn:save")
-async def meaning_save(call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext) -> None:
-    ids = (await state.get_data()).get("mean_ids") or []
-    saved = 0
-    for search_id in ids:
-        saved += await crud.save_finding(session, user.tg_id, search_id)
-    if saved:
-        await call.answer(f"📁 Сохранено в «Мои находки»: {saved}")
-    else:
-        await call.answer("Нечего сохранять — запустите поиск заново", show_alert=True)
-
-
-async def _run_meaning_search(
-    event: CallbackQuery, session: AsyncSession, user: User, state: FSMContext, checker: UsernameChecker
-) -> None:
-    lang, theme, custom, length = _meaning_choice(await state.get_data())
-    # Админы проверяют режим без Premium — у них поиск не списывается
-    if user.tg_id in settings.admin_ids and not crud.premium_active(user):
-        source = "admin"
-    else:
-        source = await _reserve_search(event, session, user)
-    if not source:
-        return
-    title = _meaning_title(lang, theme, custom, length)
-    step = "Подбираю слова по теме и проверяю" if custom else "Проверяю"
-    wait_text = f"⏳ <b>Ищу свободные слова со смыслом</b>\n{title}\n\n{step} в Telegram и на Fragment…"
-    msg = await _wait_message(event, wait_text)
-    ticker = asyncio.create_task(_tick(msg, wait_text))
-    found: list[meaning_words.Candidate] = []
-    answered = 0  # сколько проверок дали ответ (а не «сервис не ответил»)
-    try:
-        exclude = await crud.recently_checked_by_user(session, user.tg_id, since_hours=24 * 7)
-        daily = await crud.premium_daily_left(session, user)
-        need = min(MEAN_LIMIT, daily[0]) if daily else MEAN_LIMIT
-        if custom:
-            todo = await meaning_ai.candidates(custom, lang, length, exclude, need * 6)
-        else:
-            todo = [c for c in meaning_words.candidates(lang, theme, length) if c.username not in exclude]
-        words_used: set[tuple[str, str]] = set()
-        deadline = time.monotonic() + MEAN_SECONDS
-        for i in range(0, len(todo), MEAN_CHUNK):
-            if len(found) >= need or time.monotonic() > deadline:
-                break
-            if time.monotonic() < fragment_parser._limited_until:
-                # Fragment ограничил частоту — ждём, иначе все проверки уйдут в «нет ответа»
-                await asyncio.sleep(min(fragment_parser._limited_until - time.monotonic() + 1, 31))
-            chunk = [c for c in todo[i : i + MEAN_CHUNK] if (c.lang, c.word) not in words_used]
-            results = await asyncio.gather(*(checker.check_web(c.username) for c in chunk))
-            if custom:
-                meaning_ai.mark_checked(custom, lang, length,
-                                        [c.username for c, r in zip(chunk, results) if r.status != "unknown"])
-            for c, r in zip(chunk, results):
-                answered += r.status != "unknown"
-                # Один ник на слово: разные написания одного слова — не разные находки
-                if r.status == "likely" and (c.lang, c.word) not in words_used and len(found) < need:
-                    words_used.add((c.lang, c.word))
-                    found.append(c)
-    except meaning_ai.AIUnavailable:
-        await _refund(session, user, source)
-        await msg.edit_text("⚠️ Нейросеть сейчас не отвечает. Поиск <b>не списан</b> — попробуйте позже "
-                            "или выберите готовую тему", reply_markup=inline.meaning_found_kb(can_save=False))
-        return
-    except Exception:
-        log.exception("Ошибка поиска слов со смыслом")
-        await _refund(session, user, source)
-        await msg.edit_text("⚠️ Сервис проверки временно недоступен. Поиск <b>не списан</b> — попробуйте позже",
-                            reply_markup=inline.meaning_found_kb(can_save=False))
-        return
-    finally:
-        ticker.cancel()
-
-    if not found:
-        await _refund(session, user, source)
-        if todo and not answered:
-            reason = "Сервисы проверки (t.me / Fragment) сейчас не отвечают"
-        else:
-            reason = "Свободных слов по этому выбору не нашлось — все проверенные заняты"
-        await msg.edit_text(
-            f"😔 {reason}\n\n{title}\n\nПоиск <b>не списан</b> — попробуйте другой язык, тему или длину",
-            reply_markup=inline.meaning_found_kb(can_save=False),
-        )
-        return
-
-    ids = []
-    for c in found:
-        row = await crud.add_search(session, user.tg_id, c.username, True, True, "meaning")
-        ids.append(row.id)
-    user.total_searches_done += 1
-    await session.commit()
-    await notify_referrer(event.bot, session, user)
-    await state.update_data(mean_ids=ids)
-    lines = [
-        f"{i}. <code>@{c.username}</code> — {html.escape(meaning_words.label(c))}"
-        + (f" {meaning_words.LANGS[c.lang][0]}" if lang == "any" else "")
-        for i, c in enumerate(found, 1)
-    ]
-    text = (
-        f"🧠 <b>Свободные слова со смыслом</b>\n{title}\n\n"
-        + "\n".join(lines)
-        + "\n\n👆 Нажмите на ник, чтобы скопировать. Занимайте скорее — свободные ники быстро разбирают"
-        + MEANING_NOTE
-    )
-    await msg.edit_text(text, reply_markup=inline.meaning_found_kb())

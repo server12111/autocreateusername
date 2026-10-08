@@ -41,7 +41,7 @@ SUCCESS_DATA = {"check_op_sub", "s:bonus", "s:5", "s:6", "s:m", "trap:add", "adm
                 "adm:bc:go", "adm:acc:phone", "adm:acc:upload", "shop:premium", "trap:ok", "soc:fgo"}
 SUCCESS_PREFIX = ("buy:", "pay:", "bt:v:", "cap:")
 PRIMARY_DATA = {"menu:search", "menu:shop", "menu:profile", "menu:ref", "menu:battle", "shop:packs", "s:word",
-                "menu:social", "soc:check", "s:mean",
+                "menu:social", "soc:check",
                 "s:mask", "s:trap", "prof:promo", "prof:finds", "prof:info", "bt:top"}
 DANGER_MARKS = ("❌", "🗑", "⛔", "🔴")
 SUCCESS_URL_MARKS = ("🚀", "🦋")

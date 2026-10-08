@@ -408,20 +408,10 @@ async def found_today(session: AsyncSession, user_id: int) -> int:
     return await session.scalar(
         select(func.count()).select_from(SearchHistory).where(
             SearchHistory.user_id == user_id,
-            SearchHistory.status_detail.in_(("free", "social", "meaning")),
+            SearchHistory.status_detail.in_(("free", "social")),
             SearchHistory.created_at >= msk_day_start(),
         )
     ) or 0
-
-
-async def meaning_available(session: AsyncSession, user: User) -> bool:
-    """Показывать ли пользователю режим «Слова со смыслом» (настройка meaning_mode)."""
-    from config import settings as env
-
-    mode = await get_setting(session, "meaning_mode")
-    if user.tg_id in env.admin_ids:
-        return mode != "off"
-    return mode == "premium"
 
 
 async def premium_daily_left(session: AsyncSession, user: User) -> tuple[int, int] | None:

@@ -243,31 +243,6 @@ class UsernameChecker:
                 self._cache = {k: v for k, v in self._cache.items() if v[1] > now}
         return res
 
-    async def check_web(self, username: str) -> CheckResult:
-        """Только t.me и Fragment, без аккаунтов (лимиты аккаунтов не тратятся). Свободный по обоим
-        сервисам ник — «likely»: изредка он всё же занят скрытым аккаунтом или зарезервирован."""
-        username = normalize(username)
-        if not is_valid_username(username):
-            return CheckResult(username, "invalid", False, False)
-        key = username.lower()
-        cached = self._cache.get(key)
-        if cached and cached[1] > time.monotonic():
-            return cached[0]  # уже проверен точно (аккаунтом) — без запросов
-        async with self.sem:
-            tme = await self._tme_exists(username)
-            if tme:
-                return CheckResult(username, "taken", False, True, source="web")
-            if tme is None:
-                return CheckResult(username, "unknown", False, False, source="web")
-            frag = await FragmentParser.check_username(username)
-        if frag["status"] in ("auction", "sale", "sold", "taken"):
-            status = {"auction": "fragment_auction", "sale": "fragment_sale", "sold": "fragment_sold",
-                      "taken": "taken"}[frag["status"]]
-            return CheckResult(username, status, False, False, frag["price"], source="web")
-        if frag["status"] != "free":
-            return CheckResult(username, "unknown", False, False, source="web")
-        return CheckResult(username, "likely", True, True, source="web")
-
     async def _check(self, username: str, background: bool) -> CheckResult:
         async with self.sem:
             # 1) Быстрый фильтр по t.me — экономит лимиты MTProto
