@@ -1,6 +1,7 @@
 """Раздел «🌐 Ник в соцсетях»: проверка ника в Telegram, YouTube, X, TikTok и поиск ника, свободного везде."""
 
 import asyncio
+import logging
 import math
 import time
 
@@ -17,12 +18,13 @@ from handlers.search import (
     LIKELY_NOTE,
     _guarded,
     _premium_gate,
+    _refund,
+    _reserve_search,
     _tick,
     _trap_select_text,
     _wait_message,
     format_statuses,
     network_statuses,
-    premium_limit_reached,
 )
 from handlers.sections import safe_edit
 from keyboards import inline
@@ -31,6 +33,7 @@ from services.op_manager import notify_referrer
 from services.username_checker import CheckerUnavailable, UsernameChecker, generate_nice, normalize
 from texts import SOCIAL_CHECK_PROMPT, SOCIAL_TEXT
 
+log = logging.getLogger(__name__)
 router = Router(name="social")
 
 CHECK_COOLDOWN = 5  # сек между проверками ника у одного пользователя (проверка бьёт в 4 сервиса)
@@ -184,13 +187,16 @@ async def social_find_go(
     if not selected:
         await call.answer("Отметьте хотя бы одну сеть", show_alert=True)
         return
-    if await premium_limit_reached(call, session, user):
+    # Premium в пределах дневного лимита — бесплатно; сверх лимита — за купленный поиск, если он есть
+    source = await _reserve_search(call, session, user)
+    if not source:
         return
-    await _guarded(call, user, _find_everywhere(call, session, user, checker, selected))
+    await _guarded(call, user, _find_everywhere(call, session, user, checker, selected, source))
 
 
 async def _find_everywhere(
-    call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker, selected: list[str]
+    call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker, selected: list[str],
+    source: str = "premium",
 ) -> None:
     order = [c for c in inline.FIND_NETWORKS if c in selected]
     titles = ", ".join(social_checker.ALL[c].title for c in order)
@@ -221,11 +227,15 @@ async def _find_everywhere(
                     break
     except CheckerUnavailable:
         found = None
+    except Exception:
+        log.exception("Ошибка поиска ника во всех соцсетях")
+        found = None
     finally:
         ticker.cancel()
 
     kb = InlineKeyboardBuilder()
     if not found:
+        await _refund(session, user, source)
         kb.button(text="🔄 Попробовать ещё", callback_data="soc:fgo")
         kb.button(text="⚙️ Выбрать сети", callback_data="soc:find")
         kb.button(text="🔙 Назад", callback_data="menu:social")

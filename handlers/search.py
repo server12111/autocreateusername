@@ -107,9 +107,22 @@ async def sponsor_bonus(call: CallbackQuery, session: AsyncSession, user: User) 
 async def _reserve_search(event: CallbackQuery | Message, session: AsyncSession, user: User) -> str | None:
     """Списывает поиск. Возвращает источник списания ('premium' | 'free' | 'paid') или None, если нельзя."""
     if crud.premium_active(user):
-        if await premium_limit_reached(event, session, user):
-            return None
-        return "premium"
+        daily = await crud.premium_daily_left(session, user)
+        if daily is None or daily[0] > 0:
+            return "premium"
+        # Дневной лимит Premium исчерпан — дальше тратим купленные поиски, если они есть
+        await session.refresh(user)
+        if user.paid_searches_left > 0:
+            res = await session.execute(
+                update(User).where(User.tg_id == user.tg_id, User.paid_searches_left > 0)
+                .values(paid_searches_left=User.paid_searches_left - 1, last_search_at=utcnow())
+            )
+            await session.commit()
+            await session.refresh(user)
+            if res.rowcount == 1:
+                return "paid"
+        await premium_limit_reached(event, session, user)
+        return None
     cooldown = await crud.get_setting_int(session, "search_cooldown_sec")
     left = cooldown_left(user, cooldown)
     if left:
@@ -155,7 +168,8 @@ async def premium_limit_reached(event: CallbackQuery | Message, session: AsyncSe
     if daily is None or daily[0] > 0:
         return False
     text = (f"💎 Дневной лимит Premium исчерпан: {daily[1]} юзернеймов в сутки\n\n"
-            f"Новые поиски — с 00:00 МСК (через {_until_msk_midnight()})")
+            f"Новые поиски — с 00:00 МСК (через {_until_msk_midnight()}) или сразу, "
+            "если купить пакет поисков в «Магазине»")
     if isinstance(event, CallbackQuery):
         await event.answer(text, show_alert=True)
     else:
@@ -436,8 +450,8 @@ async def _run_word_search(
             if exact.is_free and word not in exclude:
                 found.append(exact)
         todo = [(i, n) for i, n in enumerate(names) if i >= pos and n not in exclude]
-        # Не больше, чем осталось в дневном лимите Premium
-        daily = await crud.premium_daily_left(session, user)
+        # Не больше, чем осталось в дневном лимите Premium (поиск за купленный — без этого ограничения)
+        daily = await crud.premium_daily_left(session, user) if source == "premium" else None
         need = min(WORD_LIMIT, daily[0]) - len(found) if daily else WORD_LIMIT - len(found)
         more, done = await checker.find_many([n for _, n in todo], need) if need > 0 else ([], 0)
         found += more
