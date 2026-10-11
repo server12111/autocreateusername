@@ -39,6 +39,7 @@ from texts import (
     MASK_PROMPT,
     NO_SPONSORS_TEXT,
     PAYWALL_TEXT,
+    FIVE_LOCKED_TEXT,
     PREMIUM_ONLY_TEXT,
     SPONSOR_BONUS_TEXT,
     TRAP_PROMPT,
@@ -104,8 +105,11 @@ async def sponsor_bonus(call: CallbackQuery, session: AsyncSession, user: User) 
     await show_no_balance(call, session, user)
 
 
-async def _reserve_search(event: CallbackQuery | Message, session: AsyncSession, user: User) -> str | None:
-    """Списывает поиск. Возвращает источник списания ('premium' | 'free' | 'paid') или None, если нельзя."""
+async def _reserve_search(
+    event: CallbackQuery | Message, session: AsyncSession, user: User, paid_only: bool = False
+) -> str | None:
+    """Списывает поиск. Возвращает источник списания ('premium' | 'free' | 'paid') или None, если нельзя.
+    paid_only — режим, который без Premium доступен только за купленные поиски (5 букв)."""
     if crud.premium_active(user):
         daily = await crud.premium_daily_left(session, user)
         if daily is None or daily[0] > 0:
@@ -134,7 +138,7 @@ async def _reserve_search(event: CallbackQuery | Message, session: AsyncSession,
         return None
     # Счётчики могли измениться в других обновлениях (покупка, бонус) — берём свежие из базы
     await session.refresh(user)
-    if user.free_searches_left > 0:
+    if user.free_searches_left > 0 and not paid_only:
         column, source = User.free_searches_left, "free"
     elif user.paid_searches_left > 0:
         column, source = User.paid_searches_left, "paid"
@@ -200,8 +204,10 @@ async def run_search(
     title: str,
     name_pool: FreeNamePool | None = None,
     pool_length: int | None = None,
+    paid_only: bool = False,
 ) -> None:
-    await _guarded(event, user, _run_search(event, session, user, checker, mode, generator, title, name_pool, pool_length))
+    await _guarded(event, user, _run_search(event, session, user, checker, mode, generator, title, name_pool,
+                                            pool_length, paid_only))
 
 
 async def _guarded(event: CallbackQuery | Message, user: User, search) -> None:
@@ -246,8 +252,9 @@ async def _run_search(
     title: str,
     name_pool: FreeNamePool | None,
     pool_length: int | None,
+    paid_only: bool = False,
 ) -> None:
-    source = await _reserve_search(event, session, user)
+    source = await _reserve_search(event, session, user, paid_only)
     if not source:
         return
     wait_text = f"⏳ <b>{title}</b>\n\nГенерирую варианты и проверяю их в Telegram и на Fragment…"
@@ -329,10 +336,19 @@ async def _premium_gate(call: CallbackQuery, user: User) -> bool:
 async def search_5(
     call: CallbackQuery, session: AsyncSession, user: User, checker: UsernameChecker, name_pool: FreeNamePool
 ) -> None:
+    title = "Ищу редкий 5-буквенный юзернейм"
     # Самый первый поиск новичка можно сделать и в режиме 5 букв (тратит бесплатный поиск)
-    if crud.first_search_free(user) or await _premium_gate(call, user):
-        await run_search(call, session, user, checker, "5", lambda: generate_nice(5),
-                         "Ищу редкий 5-буквенный юзернейм", name_pool, 5)
+    if crud.first_search_free(user) or crud.premium_active(user):
+        await run_search(call, session, user, checker, "5", lambda: generate_nice(5), title, name_pool, 5)
+        return
+    # Без Premium 5 букв — за купленный поиск (бесплатные на 5 букв не тратятся)
+    await session.refresh(user)
+    if user.paid_searches_left > 0:
+        await run_search(call, session, user, checker, "5", lambda: generate_nice(5), title, name_pool, 5,
+                         paid_only=True)
+        return
+    await call.answer()
+    await safe_edit(call, FIVE_LOCKED_TEXT, _paywall_kb())
 
 
 @router.callback_query(F.data == "s:6")
