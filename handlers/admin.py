@@ -95,10 +95,11 @@ def _home():
         ("⚙️ Настройки", "adm:set"),
         ("🤖 Аккаунты", "adm:acc"),
         ("✨ Оформление", "adm:style"),
+        ("💾 База данных", "adm:db"),
     ]:
         kb.button(text=t, callback_data=d)
     kb.button(text="🏠 Главное меню бота", callback_data="menu:main")
-    kb.adjust(1, 2, 2, 2, 2, 1)
+    kb.adjust(1, 2, 2, 2, 2, 2, 1)
     return text, kb.as_markup()
 
 

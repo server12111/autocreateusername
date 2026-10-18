@@ -17,6 +17,7 @@ from database.models import msk, utcnow
 from handlers import (
     admin,
     admin_accounts,
+    admin_db,
     admin_botohub,
     admin_style,
     nickname_battle,
@@ -123,6 +124,7 @@ async def main() -> None:
     logging.getLogger("telethon").setLevel(logging.WARNING)
 
     await init_db()
+    admin_db.cleanup_tmp()
 
     pool = MTProtoPool(settings.SESSIONS_DIR, settings.API_ID, settings.API_HASH)
     await pool.init_pool()
@@ -158,6 +160,7 @@ async def main() -> None:
     dp.include_routers(
         admin.router,
         admin_accounts.router,
+        admin_db.router,
         admin_style.router,
         admin_botohub.router,
         start.router,
