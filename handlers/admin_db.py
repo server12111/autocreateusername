@@ -10,6 +10,7 @@
 
 import asyncio
 import gzip
+import html
 import logging
 import os
 import shutil
@@ -92,14 +93,15 @@ def _restore(src_path: str) -> None:
         src.close()
 
 
-def _stats(path: str) -> dict:
-    """Проверяет, что файл — целая база этого бота, и считает основные данные. ValueError — нет."""
+def _stats(path: str, full_check: bool = True) -> dict:
+    """Проверяет, что файл — целая база этого бота, и считает основные данные. ValueError — нет.
+    full_check=False — без integrity_check (для живой базы на экране: быстро и не зависит от её состояния)."""
     with open(path, "rb") as f:
         if f.read(16) != SQLITE_MAGIC:
             raise ValueError("это не база SQLite")
     con = sqlite3.connect(path)
     try:
-        if con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+        if full_check and con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise ValueError("файл базы повреждён (integrity_check)")
         tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         missing = REQUIRED_TABLES - tables
@@ -181,11 +183,15 @@ def _kb(*rows: tuple[str, str]):
 
 
 async def _screen() -> tuple[str, object]:
-    current = await asyncio.to_thread(_stats, _db_path())
+    # Экран должен открываться и с повреждённой базой — именно тогда нужны экспорт, импорт и откат
+    try:
+        current = _fmt_stats(await asyncio.to_thread(_stats, _db_path(), False))
+    except Exception as e:
+        current = f"⚠️ Не удалось прочитать текущую базу: {html.escape(str(e))}"
     backups = _backups()
     text = (
         "💾 <b>БАЗА ДАННЫХ</b>\n\n"
-        f"{_fmt_stats(current)}\n"
+        f"{current}\n"
         f"📁 Размер: <b>{_size(_db_path())}</b>\n\n"
         "📤 <b>Экспорт</b> — пришлю файл с полной копией базы\n"
         "📥 <b>Импорт</b> — заменить базу присланным файлом (текущая сохранится, импорт можно откатить)"
@@ -275,7 +281,10 @@ async def db_import_file(message: Message, state: FSMContext, bot: Bot) -> None:
         else:
             os.replace(raw, path)
         new = await asyncio.to_thread(_stats, path)
-        current = await asyncio.to_thread(_stats, _db_path())
+        try:
+            current = _fmt_stats(await asyncio.to_thread(_stats, _db_path(), False))
+        except Exception as e:
+            current = f"⚠️ не читается: {html.escape(str(e))}"
     except ValueError as e:
         _remove(raw, path)
         await wait.edit_text(f"⚠️ Этот файл нельзя импортировать: {e}\n\nПришлите другой файл",
@@ -291,7 +300,7 @@ async def db_import_file(message: Message, state: FSMContext, bot: Bot) -> None:
     await wait.edit_text(
         "📥 <b>ПРОВЕРКА ПРОЙДЕНА</b>\n\n"
         f"<b>В файле:</b>\n{_fmt_stats(new)}\n\n"
-        f"<b>Сейчас в боте:</b>\n{_fmt_stats(current)}\n\n"
+        f"<b>Сейчас в боте:</b>\n{current}\n\n"
         "⚠️ Текущая база будет <b>полностью заменена</b> этой. Перед заменой сохраню копию текущей — "
         "импорт можно будет откатить. После замены бот перезапустится (~20 сек)",
         reply_markup=_kb(("✅ Заменить базу", "adm:db:confirm"), ("❌ Отмена", "adm:db:cancel")),
@@ -323,19 +332,28 @@ async def _replace_and_restart(
     except Exception:
         _remove(backup)  # замена не прошла — база прежняя, эта копия не нужна
         raise
-    if on_done:
-        on_done()
-    stats = await asyncio.to_thread(_stats, _db_path())
-    _trim_backups()
-    log.warning("База данных заменена админом %s (%s); копия прежней: %s", call.from_user.id, note, backup)
-    await call.message.edit_text(
-        f"✅ <b>База заменена</b> ({note})\n\n{_fmt_stats(stats)}\n\n"
-        f"Копия прежней базы: <code>{os.path.basename(backup)}</code>\n"
-        "🔄 Бот перезапускается — через ~20 сек отправьте /admin"
-    )
-    # Перезапуск: останавливаем polling, main() завершается, systemd (Restart=always) поднимает бота заново
-    await asyncio.sleep(RESTART_DELAY)
-    await dispatcher.stop_polling()
+    # База уже заменена: дальше ничего не должно помешать перезапуску, иначе в памяти останутся
+    # аккаунты и настройки от старой базы
+    try:
+        if on_done:
+            on_done()
+        _trim_backups()
+        log.warning("База данных заменена админом %s (%s); копия прежней: %s", call.from_user.id, note, backup)
+        try:
+            summary = _fmt_stats(await asyncio.to_thread(_stats, _db_path()))
+        except Exception as e:
+            summary = f"⚠️ Проверка новой базы: {html.escape(str(e))}"
+        await call.message.edit_text(
+            f"✅ <b>База заменена</b> ({note})\n\n{summary}\n\n"
+            f"Копия прежней базы: <code>{os.path.basename(backup)}</code>\n"
+            "🔄 Бот перезапускается — через ~20 сек отправьте /admin"
+        )
+    except Exception:
+        log.exception("После замены базы не удалось сообщить админу — перезапускаюсь всё равно")
+    finally:
+        # Перезапуск: останавливаем polling, main() завершается, systemd (Restart=always) поднимает бота заново
+        await asyncio.sleep(RESTART_DELAY)
+        await dispatcher.stop_polling()
 
 
 @router.callback_query(F.data == "adm:db:confirm")
